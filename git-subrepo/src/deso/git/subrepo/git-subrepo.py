@@ -27,8 +27,10 @@ from os.path import (
   join,
 )
 from subprocess import (
+  CalledProcessError,
   check_call,
   check_output,
+  DEVNULL,
 )
 from sys import (
   argv as sysargv,
@@ -144,6 +146,29 @@ def setupArgumentParser():
   return parser
 
 
+def resolveCommit(repo, commit):
+  """Resolve a potentially symbolic commit name to a SHA1 hash."""
+  try:
+    to_import = "refs/remotes/%s/%s" % (repo, commit)
+    out = check_output([GIT, "rev-parse", to_import], stderr=DEVNULL)
+    return out.decode("utf-8")[:-1]
+  except CalledProcessError:
+    # If we already got supplied a SHA1 hash the above command will fail
+    # because we prefixed the hash with the repository, which git will
+    # not understand. In such a case we want to make sure we are really
+    # dealing with the SHA1 hash (and not something else we do not know
+    # how to handle correctly) and ask git to parse it again, which
+    # should just return the very same hash.
+    tmp = check_output([GIT, "rev-parse", "%s" % commit]).decode("utf-8")[:-1]
+    if tmp != commit:
+      # Very likely we will not hit this path because git-rev-parse
+      # returns an error and so we raise an exception beforehand. But
+      # to be safe we keep it.
+      raise RuntimeError("Commit name '%s' was not understood." % commit)
+
+    return commit
+
+
 def main(argv):
   """The main function interprets the arguments and acts upon them."""
   parser = setupArgumentParser()
@@ -153,11 +178,10 @@ def main(argv):
   repo = getattr(namespace, "remote-repository")
   commit = namespace.commit
   prefix = trail(namespace.prefix)
-  to_import = "refs/remotes/%s/%s" % (repo, commit)
   # We always resolve the possibly symbolic commit name into a SHA1
   # hash. The main reason is that we want this hash to be contained in
   # the commit message. So for consistency, we should also work with it.
-  sha1 = check_output([GIT, "rev-parse", to_import]).decode("utf-8")[:-1]
+  sha1 = resolveCommit(repo, commit)
 
   if cmd == "add":
     check_call([GIT, "read-tree", "--prefix=%s" % prefix, "-u", sha1])

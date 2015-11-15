@@ -37,6 +37,7 @@ from shutil import (
 )
 from subprocess import (
   check_call,
+  check_output,
   DEVNULL,
 )
 from sys import (
@@ -58,6 +59,16 @@ class GitRepository(Repository):
   def __init__(self):
     """Initialize the git repository."""
     super().__init__(GIT)
+
+
+  @Repository.unsetHome
+  @Repository.autoChangeDir
+  def revParse(self, *args):
+    """Invoke git-rev-parse with a set of arguments."""
+    # We need to remove the trailing new line symbol here.
+    # Unfortunately, there is no --null option (as supported by
+    # git-config) that causes a NULL terminated string to be emitted.
+    return check_output([GIT, "rev-parse"] + list(args))[:-1]
 
 
   @Repository.unsetHome
@@ -125,6 +136,24 @@ class TestGitSubrepo(TestCase):
 
       self.assertEqual(read(r2, "text", "text.dat"), "test41")
       self.assertEqual(read(r2, "text", "text2.dat"), "empty")
+
+
+  def testSha1HashResolution(self):
+    """Verify that git-subrepo is able to handle supplied SHA1 hashes correctly."""
+    with GitRepository() as r1,\
+         GitRepository() as r2:
+      content = "def run(): print('hello!')"
+
+      write(r1, "main.py", data=content)
+      r1.add("main.py")
+      r1.commit()
+      sha1 = r1.revParse("HEAD")
+
+      r2.remote("add", "--fetch", "py", r1.path())
+      r2.subrepo("add", "py", join("src", "lib"), sha1)
+
+      self.assertEqual(read(r2, "src", "lib", "main.py"), content)
+
 
 
 if __name__ == "__main__":
