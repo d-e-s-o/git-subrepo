@@ -74,6 +74,14 @@ def addStandardArgs(parser):
   )
 
 
+def addOptionalArgs(parser):
+  """Add optional arguments to the argument parser."""
+  parser.add_argument(
+    "-e", "--edit", action="store_true", default=False, dest="edit",
+    help="Open up an editor to allow for editing the commit message.",
+  )
+
+
 def addAddParser(parser):
   """Add a parser for the 'add' command to another parser."""
   add = parser.add_parser(
@@ -99,6 +107,7 @@ def addAddParser(parser):
   )
 
   optional = add.add_argument_group("Optional arguments")
+  addOptionalArgs(optional)
   addStandardArgs(optional)
 
 
@@ -124,6 +133,7 @@ def addUpdateParser(parser):
   )
 
   optional = add.add_argument_group("Optional arguments")
+  addOptionalArgs(optional)
   addStandardArgs(optional)
 
 
@@ -196,9 +206,10 @@ def main(argv):
   else:
     assert False
 
+  options = ["--edit"] if namespace.edit else []
   message = "{cmd} subrepo {prefix}:{repo} at {sha1}"
   message = message.format(cmd=cmd, repo=repo, prefix=prefix, sha1=sha1)
-  check_call([GIT, "commit", "--no-verify", "--message=%s" % message])
+  check_call([GIT, "commit", "--no-verify", "--message=%s" % message] + options)
   return 0
 
 
