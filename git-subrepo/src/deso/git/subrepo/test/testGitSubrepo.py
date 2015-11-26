@@ -25,10 +25,15 @@ from deso.git.repo import (
   write,
 )
 from os import (
+  chdir,
+  getcwd,
+  mkdir,
   pardir,
 )
 from os.path import (
+  commonprefix,
   dirname,
+  exists,
   join,
   realpath,
 )
@@ -154,6 +159,29 @@ class TestGitSubrepo(TestCase):
 
       self.assertEqual(read(r2, "src", "lib", "main.py"), content)
 
+
+  def testRelativePrefixHandling(self):
+    """Verify that subrepo prefixes are treated relative to the current directory."""
+    with GitRepository() as lib,\
+         GitRepository() as app:
+      cwd = getcwd()
+
+      write(lib, "lib.h", data="/* Lib */")
+      lib.add("lib.h")
+      lib.commit()
+      app.remote("add", "--fetch", "lib", lib.path())
+
+      # In order to test handling of relative paths we change into a sub
+      # directory. All operations should then work relative to this sub
+      # directory.
+      mkdir(app.path("src"))
+      chdir(app.path("src"))
+      try:
+        app.subrepo("add", "lib", "lib", "master")
+      finally:
+        chdir(cwd)
+
+      self.assertTrue(exists(app.path("src", "lib", "lib.h")))
 
 
 if __name__ == "__main__":

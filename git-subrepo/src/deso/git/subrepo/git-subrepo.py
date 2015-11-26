@@ -25,6 +25,7 @@ from argparse import (
 )
 from os.path import (
   join,
+  relpath,
 )
 from subprocess import (
   CalledProcessError,
@@ -156,6 +157,12 @@ def setupArgumentParser():
   return parser
 
 
+def retrieveRepositoryRoot():
+  """Retrieve the root directory of the current git repository."""
+  out = check_output([GIT, "rev-parse", "--show-toplevel"], stderr=DEVNULL)
+  return out[:-1].decode("utf-8")
+
+
 def resolveCommit(repo, commit):
   """Resolve a potentially symbolic commit name to a SHA1 hash."""
   try:
@@ -186,8 +193,18 @@ def main(argv):
 
   cmd = namespace.command
   repo = getattr(namespace, "remote-repository")
+  root = retrieveRepositoryRoot()
   commit = namespace.commit
-  prefix = trail(namespace.prefix)
+  # The user-given prefix is to be treated relative to the current
+  # working directory. This directory is not necessarily equal to the
+  # current repository's root. So we have to perform some path magic in
+  # order to convert the prefix into one relative to the git
+  # repository's root. If we did nothing here git would always treat the
+  # prefix relative to the root directory which would result in
+  # unexpected behavior.
+  prefix = relpath(namespace.prefix)
+  prefix = relpath(prefix, start=root)
+  prefix = trail(prefix)
   # We always resolve the possibly symbolic commit name into a SHA1
   # hash. The main reason is that we want this hash to be contained in
   # the commit message. So for consistency, we should also work with it.
