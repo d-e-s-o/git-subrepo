@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<?asciidoc-toc?>
+<?asciidoc-numbered?>
+<refentry>
+<refmeta>
+<refentrytitle>git-subrepo</refentrytitle>
+<manvolnum>1</manvolnum>
+<refmiscinfo class="source">Git</refmiscinfo>
+<refmiscinfo class="manual">Git Manual</refmiscinfo>
+</refmeta>
+<refnamediv>
+  <refname>git-subrepo</refname>
+  <refpurpose>Add and update subrepos</refpurpose>
+</refnamediv>
+<refsynopsisdiv id="_synopsis">
+<literallayout><emphasis>git subrepo</emphasis> add [--edit] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
+<emphasis>git subrepo</emphasis> update [--edit] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;</literallayout>
+<simpara></simpara>
+</refsynopsisdiv>
+<refsect1 id="_description">
+<title>DESCRIPTION</title>
+<simpara>Adds and updates subrepos.</simpara>
+<simpara>A subrepo allows you to keep another Git repository in a subdirectory
+of your current repository (the current repository is termed the
+"superrepo"). The other repository&#8217;s source code is thereby embedded
+directly into this repository. This embedding makes subrepos preferable
+to submodules (see <citerefentry>
+<refentrytitle>git-submodule</refentrytitle><manvolnum>1</manvolnum>
+</citerefentry>) in many scenarios, as
+references to another repository cannot become invalid and all
+dependencies required in the superrepo are contained in it. In that
+sense, subrepos behave similar to subtrees (see <citerefentry>
+<refentrytitle>git-subtree</refentrytitle><manvolnum>1</manvolnum>
+</citerefentry>)
+when using the --squash option to squash commits. The resulting commit,
+however, is not a merge in any way. Rather, the source code is imported
+as a "normal" commit, allowing for rebasing to take place, for instance.</simpara>
+<simpara>Being part of the superrepo, clone and pull operations will involve any
+subrepos equally well, without any additional command invocations being
+required.</simpara>
+</refsect1>
+<refsect1 id="_commands">
+<title>COMMANDS</title>
+<variablelist>
+<varlistentry>
+<term>
+add
+</term>
+<listitem>
+<simpara>
+  Add the given remote repository as a subrepo at the given prefix/path
+  in the state as specified by the given commit. A new commit will be
+  created in the superrepo that imports the source code.
+</simpara>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+update
+</term>
+<listitem>
+<simpara>
+  Update an existing subrepo so that the state of the source code in the
+  subdirectory specified by the given prefix matches that of the remote
+  repository at the given commit. A new commit will be created in the
+  superrepo that contains the differences between the state before
+  and after the update.
+</simpara>
+</listitem>
+</varlistentry>
+</variablelist>
+</refsect1>
+<refsect1 id="_options">
+<title>OPTIONS</title>
+<variablelist>
+<varlistentry>
+<term>
+&lt;remote-repository&gt;
+</term>
+<listitem>
+<simpara>
+  Name of a remote repository to import in the form of a subrepo. The
+  remote repository should be up-to-date such that the given commit is
+  known locally. Please refer to <citerefentry>
+<refentrytitle>git-remote</refentrytitle><manvolnum>1</manvolnum>
+</citerefentry> for more details
+  on remote repositories.
+</simpara>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+&lt;prefix&gt;
+</term>
+<listitem>
+<simpara>
+  Relative path specifying where to add a new subrepo or where an
+  already imported one to update resides.
+</simpara>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+&lt;commit&gt;
+</term>
+<listitem>
+<simpara>
+  Commit representing the state at which to import the given remote
+  repository as a subrepo or to which to update the given subrepo to.
+</simpara>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+-e
+</term>
+<term>
+--edit
+</term>
+<listitem>
+<simpara>
+  By default git-subrepo creates a commit message containing only the
+  essential information for a particular commit. When this option is set
+  the committer gets the chance to further edit the message.
+</simpara>
+</listitem>
+</varlistentry>
+</variablelist>
+</refsect1>
+<refsect1 id="_git">
+<title>GIT</title>
+<simpara>To be used in conjunction with the <citerefentry>
+<refentrytitle>git</refentrytitle><manvolnum>1</manvolnum>
+</citerefentry> suite</simpara>
+</refsect1>
+</refentry>
