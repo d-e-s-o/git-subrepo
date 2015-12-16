@@ -78,15 +78,21 @@ represent the state of 'lib' at commit 'feature'.
 Installation
 ------------
 
-Being a simple script, there are multiple ways to perform an
-installation. If you are using [Gentoo Linux](https://www.gentoo.org/),
+In order to run **git-subrepo** the
+[cleanup](https://github.com/d-e-s-o/cleanup) and
+[execute](https://github.com/d-e-s-o/execute) Python modules (contained
+in the repository in compatible and tested versions) need to be
+accessible by Python (typically by installing them in a directory listed
+in ``PYTHONPATH`` or adjusting the latter to point to each of them).
+
+All that has to be done in addition is to make the script executable and
+to link it symbolically (or copy/move) into a directory contained in the
+``PATH`` environment variable. Usually, one also wants to rename it to
+not contain the .py extension anymore.
+
+If you are using [Gentoo Linux](https://www.gentoo.org/),
 there is an [ebuild](https://github.com/d-e-s-o/git-subrepo-ebuild)
 available that can be used directly.
-
-In the general case, all that has to be done is to make the script
-executable and to link it symbolically (or copy/move) into a directory
-contained in the ``PATH`` environment variable. Usually, one also wants
-to rename it to not contain the .py extension anymore.
 
 
 Support

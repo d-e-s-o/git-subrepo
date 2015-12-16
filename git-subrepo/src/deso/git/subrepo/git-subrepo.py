@@ -23,22 +23,21 @@ from argparse import (
   ArgumentParser,
   HelpFormatter,
 )
+from deso.execute import (
+  execute,
+  findCommand,
+  ProcessError,
+)
 from os.path import (
   join,
   relpath,
-)
-from subprocess import (
-  CalledProcessError,
-  check_call,
-  check_output,
-  DEVNULL,
 )
 from sys import (
   argv as sysargv,
 )
 
 
-GIT = "git"
+GIT = findCommand("git")
 
 
 def trail(path):
@@ -159,7 +158,7 @@ def setupArgumentParser():
 
 def retrieveRepositoryRoot():
   """Retrieve the root directory of the current git repository."""
-  out = check_output([GIT, "rev-parse", "--show-toplevel"], stderr=DEVNULL)
+  out, _ = execute(GIT, "rev-parse", "--show-toplevel", stdout=b"")
   return out[:-1].decode("utf-8")
 
 
@@ -167,17 +166,18 @@ def resolveCommit(repo, commit):
   """Resolve a potentially symbolic commit name to a SHA1 hash."""
   try:
     to_import = "refs/remotes/%s/%s" % (repo, commit)
-    out = check_output([GIT, "rev-parse", to_import], stderr=DEVNULL)
+    out, _ = execute(GIT, "rev-parse", to_import, stdout=b"")
     return out.decode("utf-8")[:-1]
-  except CalledProcessError:
+  except ProcessError:
     # If we already got supplied a SHA1 hash the above command will fail
     # because we prefixed the hash with the repository, which git will
     # not understand. In such a case we want to make sure we are really
     # dealing with the SHA1 hash (and not something else we do not know
     # how to handle correctly) and ask git to parse it again, which
     # should just return the very same hash.
-    tmp = check_output([GIT, "rev-parse", "%s" % commit]).decode("utf-8")[:-1]
-    if tmp != commit:
+    out, _ = execute(GIT, "rev-parse", "%s" % commit, stdout=b"")
+    out = out.decode("utf-8")[:-1]
+    if out != commit:
       # Very likely we will not hit this path because git-rev-parse
       # returns an error and so we raise an exception beforehand. But
       # to be safe we keep it.
@@ -211,22 +211,23 @@ def main(argv):
   sha1 = resolveCommit(repo, commit)
 
   if cmd == "add":
-    check_call([GIT, "read-tree", "--prefix=%s" % prefix, "-u", sha1])
+    execute(GIT, "read-tree", "--prefix=%s" % prefix, "-u", sha1)
   elif cmd == "update":
     # In order to update the subrepo we require the SHA1 hash
     # representing the tree object used internally in git for the
     # directory where the subrepo was integrated at (i.e., the prefix)
     # at revision HEAD.
-    tree = check_output([GIT, "rev-parse", "HEAD^{tree}:%s" % prefix]).decode("utf-8")[:-1]
+    out, _ = execute(GIT, "rev-parse", "HEAD^{tree}:%s" % prefix, stdout=b"")
+    tree = out.decode("utf-8")[:-1]
     # Now we "update" the tree.
-    check_call([GIT, "read-tree", "-u", "--prefix=%s" % prefix, tree, sha1])
+    execute(GIT, "read-tree", "-u", "--prefix=%s" % prefix, tree, sha1)
   else:
     assert False
 
   options = ["--edit"] if namespace.edit else []
   message = "{cmd} subrepo {prefix}:{repo} at {sha1}"
   message = message.format(cmd=cmd, repo=repo, prefix=prefix, sha1=sha1)
-  check_call([GIT, "commit", "--no-verify", "--message=%s" % message] + options)
+  execute(GIT, "commit", "--no-verify", "--message=%s" % message, *options)
   return 0
 
 

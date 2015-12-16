@@ -19,6 +19,10 @@
 
 """Various tests for the git-subrepo functionality."""
 
+from deso.execute import (
+  execute,
+  findCommand,
+)
 from deso.git.repo import (
   read,
   Repository,
@@ -31,31 +35,21 @@ from os import (
   pardir,
 )
 from os.path import (
-  commonprefix,
   dirname,
   exists,
   join,
   realpath,
-)
-from shutil import (
-  which,
-)
-from subprocess import (
-  check_call,
-  check_output,
-  DEVNULL,
 )
 from sys import (
   executable,
 )
 from unittest import (
   main,
-  SkipTest,
   TestCase,
 )
 
 
-GIT = "git"
+GIT = findCommand("git")
 GIT_SUBREPO = realpath(join(dirname(__file__), pardir, "git-subrepo.py"))
 
 
@@ -73,20 +67,15 @@ class GitRepository(Repository):
     # We need to remove the trailing new line symbol here.
     # Unfortunately, there is no --null option (as supported by
     # git-config) that causes a NULL terminated string to be emitted.
-    return check_output([GIT, "rev-parse"] + list(args))[:-1]
+    out, _ = execute(GIT, "rev-parse", *args, stdout=b"")
+    return out[:-1].decode("utf-8")
 
 
   @Repository.unsetHome
   @Repository.autoChangeDir
   def subrepo(self, *args):
     """Invoke a git-subrepo command."""
-    check_call([executable, GIT_SUBREPO] + list(args), stdout=DEVNULL)
-
-
-def setUpModule():
-  """Setup function invoked when loading the module."""
-  if which(GIT) is None:
-    raise SkipTest("%s command not found on system" % GIT)
+    execute(executable, GIT_SUBREPO, *args)
 
 
 class TestGitSubrepo(TestCase):
