@@ -40,6 +40,9 @@ from os.path import (
   join,
   realpath,
 )
+from random import (
+  randint,
+)
 from sys import (
   executable,
 )
@@ -80,29 +83,73 @@ class GitRepository(Repository):
 
 class TestGitSubrepo(TestCase):
   """Tests for the git-subrepo script."""
-  def addAndCheck(self, prefix):
+  def addUpdateAndCheck(self, prefix, multi_commit=False):
     """Add a subrepo to another directory and check for correct file contents."""
-    with GitRepository() as lib,\
+    with GitRepository() as lib1,\
+         GitRepository() as lib2,\
          GitRepository() as app:
-      write(lib, "test.hpp", data="int test() { return 42; }")
-      lib.add("test.hpp")
-      lib.commit()
+      write(lib1, "test.hpp", data="int test() { return 42; }")
+      lib1.add("test.hpp")
 
-      app.remote("add", "--fetch", "lib", lib.path())
-      app.subrepo("add", "lib", prefix, "master")
+      # We want to see if we can add single and multi commit remote
+      # repositories as the initial commit equally well. So create an
+      # intermediate commit here if desired.
+      if multi_commit:
+        lib1.commit()
+
+      # Also verify that we can properly import binary data.
+      write(lib1, "test.bin", data="".join(chr(randint(0, 255)) for _ in range(512)))
+      lib1.add("test.bin")
+      lib1.commit()
+
+      app.remote("add", "--fetch", "lib1", lib1.path())
+      app.subrepo("add", "lib1", prefix, "master")
 
       # Create an additional non-subrepo commit in the application.
       write(app, "main.c", data="#include \"test.hpp\"")
       app.add("main.c")
       app.commit()
 
-      self.assertEqual(read(app, prefix, "test.hpp"), read(lib, "test.hpp"))
+      # Add a second subrepo. This time unconditionally in the root
+      # directory.
+      write(lib2, "foo42.py", data="def main(): pass")
+      lib2.add("foo42.py")
+
+      mkdir(lib2.path("lib2"))
+      write(lib2, "lib2", "lib2.py", data="import sys")
+      lib2.add(lib2.path("lib2", "lib2.py"))
+      lib2.commit()
+
+      app.remote("add", "--fetch", "lib2", lib2.path())
+      app.subrepo("add", "lib2", ".", "master")
+
+      self.assertEqual(read(app, prefix, "test.hpp"), read(lib1, "test.hpp"))
+      self.assertEqual(read(app, prefix, "test.bin"), read(lib1, "test.bin"))
+      self.assertEqual(read(app, "foo42.py"), read(lib2, "foo42.py"))
+      self.assertEqual(read(app, "lib2", "lib2.py"), read(lib2, "lib2", "lib2.py"))
+
+      # Now update 'lib1' and then update the subrepo referencing it in
+      # 'app'.
+      write(lib1, "test.hpp", data="int test() { return 1; }")
+      lib1.add("test.hpp")
+      write(lib1, "test.cpp", data="#error Not Compilable")
+      lib1.add("test.cpp")
+      lib1.commit()
+
+      app.fetch("lib1")
+      app.subrepo("update", "lib1", prefix, "master")
+
+      self.assertEqual(read(app, prefix, "test.hpp"), read(lib1, "test.hpp"))
+      self.assertEqual(read(app, prefix, "test.cpp"), read(lib1, "test.cpp"))
+      self.assertEqual(read(app, "foo42.py"), read(lib2, "foo42.py"))
+      self.assertEqual(read(app, "lib2", "lib2.py"), read(lib2, "lib2", "lib2.py"))
 
 
-  def testAdd(self):
-    """Verify that we can add a subrepo into another repository."""
-    for prefix in ("lib", join("src", "lib")):
-      self.addAndCheck(prefix)
+  def testAddAndUpdate(self):
+    """Verify that we can add and update subrepos in another repository."""
+    for prefix in (".", "lib", join("src", "lib")):
+      for multi_commit in (False, True):
+        self.addUpdateAndCheck(prefix, multi_commit=multi_commit)
 
 
   def testUpdate(self):
@@ -130,6 +177,14 @@ class TestGitSubrepo(TestCase):
 
       self.assertEqual(read(r2, "text", "text.dat"), "test41")
       self.assertEqual(read(r2, "text", "text2.dat"), "empty")
+
+      # Now also "downdate".
+      r2.subrepo("update", "text", "text", "master^")
+
+      self.assertEqual(read(r2, "text", "text.dat"), "test42")
+
+      with self.assertRaises(FileNotFoundError):
+        read(r2, "text", "text2.dat")
 
 
   def testSha1HashResolution(self):
