@@ -9,8 +9,8 @@ git-subrepo - Add and update subrepos
 SYNOPSIS
 --------
 [verse]
-'git subrepo' add [--edit] <remote-repository> <prefix> <commit>
-'git subrepo' update [--edit] <remote-repository> <prefix> <commit>
+'git subrepo' add [--edit] [--verbose] <remote-repository> <prefix> <commit>
+'git subrepo' update [--edit] [--verbose] <remote-repository> <prefix> <commit>
 
 
 DESCRIPTION
@@ -68,6 +68,14 @@ OPTIONS
   By default git-subrepo creates a commit message containing only the
   essential information for a particular commit. When this option is set
   the committer gets the chance to further edit the message.
+
+-v::
+--verbose::
+  In normal mode of operation git-subrepo only prints messages in case
+  of errors. For debugging purposes it might be beneficial to understand
+  which commands are being executed and possibly replay them. By
+  specifying this option all command invocations are reported to the
+  user.
 
 GIT
 ---

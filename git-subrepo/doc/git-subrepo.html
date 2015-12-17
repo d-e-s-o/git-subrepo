@@ -748,8 +748,8 @@ git-subrepo(1) Manual Page
 <h2 id="_synopsis">SYNOPSIS</h2>
 <div class="sectionbody">
 <div class="verseblock">
-<pre class="content"><em>git subrepo</em> add [--edit] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
-<em>git subrepo</em> update [--edit] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;</pre>
+<pre class="content"><em>git subrepo</em> add [--edit] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
+<em>git subrepo</em> update [--edit] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;</pre>
 <div class="attribution">
 </div></div>
 </div>
@@ -849,6 +849,21 @@ update
   the committer gets the chance to further edit the message.
 </p>
 </dd>
+<dt class="hdlist1">
+-v
+</dt>
+<dt class="hdlist1">
+--verbose
+</dt>
+<dd>
+<p>
+  In normal mode of operation git-subrepo only prints messages in case
+  of errors. For debugging purposes it might be beneficial to understand
+  which commands are being executed and possibly replay them. By
+  specifying this option all command invocations are reported to the
+  user.
+</p>
+</dd>
 </dl></div>
 </div>
 </div>
@@ -862,7 +877,7 @@ update
 <div id="footnotes"><hr /></div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2015-11-28 15:59:23 PST
+Last updated 2015-12-16 16:39:33 PST
 </div>
 </div>
 </body>

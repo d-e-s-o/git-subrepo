@@ -24,9 +24,10 @@ from argparse import (
   HelpFormatter,
 )
 from deso.execute import (
-  execute,
+  execute as execute_,
   findCommand,
-  pipeline,
+  formatCommands,
+  pipeline as pipeline_,
   ProcessError,
 )
 from os import (
@@ -48,11 +49,28 @@ from sys import (
 
 GIT = findCommand("git")
 COMMIT_MSG_BASE = r"subrepo {prefix}:{repo} at {sha1}"
+VERBOSE = False
 
 
 def trail(path):
   """Ensure the path has a trailing separator."""
   return join(path, "")
+
+
+def execute(*args, **kwargs):
+  """Run a program, optionally print the full command."""
+  if VERBOSE:
+    print(formatCommands(list(args)))
+
+  return execute_(*args, **kwargs)
+
+
+def pipeline(commands, *args, **kwargs):
+  """Run a pipeline, optionally print the full command."""
+  if VERBOSE:
+    print(formatCommands(commands))
+
+  return pipeline_(commands, *args, **kwargs)
 
 
 class TopLevelHelpFormatter(HelpFormatter):
@@ -89,6 +107,11 @@ def addOptionalArgs(parser):
   parser.add_argument(
     "-e", "--edit", action="store_true", default=False, dest="edit",
     help="Open up an editor to allow for editing the commit message.",
+  )
+  parser.add_argument(
+    "-v", "--verbose", action="store_true", default=False, dest="verbose",
+    help="Be more verbose about what is being done by displaying the git "
+         "commands performed.",
   )
 
 
@@ -241,8 +264,11 @@ def resolveCommit(repo, commit):
 
 def main(argv):
   """The main function interprets the arguments and acts upon them."""
+  global VERBOSE
+
   parser = setupArgumentParser()
   namespace = parser.parse_args(argv[1:])
+  VERBOSE = namespace.verbose
 
   cmd = namespace.command
   repo = getattr(namespace, "remote-repository")

@@ -2,12 +2,12 @@
 .\"     Title: git-subrepo
 .\"    Author: [FIXME: author] [see http://docbook.sf.net/el/author]
 .\" Generator: DocBook XSL Stylesheets v1.78.0 <http://docbook.sf.net/>
-.\"      Date: 11/28/2015
+.\"      Date: 12/16/2015
 .\"    Manual: Git Manual
 .\"    Source: Git
 .\"  Language: English
 .\"
-.TH "GIT\-SUBREPO" "1" "11/28/2015" "Git" "Git Manual"
+.TH "GIT\-SUBREPO" "1" "12/16/2015" "Git" "Git Manual"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -32,8 +32,8 @@ git-subrepo \- Add and update subrepos
 .SH "SYNOPSIS"
 .sp
 .nf
-\fIgit subrepo\fR add [\-\-edit] <remote\-repository> <prefix> <commit>
-\fIgit subrepo\fR update [\-\-edit] <remote\-repository> <prefix> <commit>
+\fIgit subrepo\fR add [\-\-edit] [\-\-verbose] <remote\-repository> <prefix> <commit>
+\fIgit subrepo\fR update [\-\-edit] [\-\-verbose] <remote\-repository> <prefix> <commit>
 .fi
 .sp
 .SH "DESCRIPTION"
@@ -76,6 +76,11 @@ Commit representing the state at which to import the given remote repository as 
 \-e, \-\-edit
 .RS 4
 By default git\-subrepo creates a commit message containing only the essential information for a particular commit\&. When this option is set the committer gets the chance to further edit the message\&.
+.RE
+.PP
+\-v, \-\-verbose
+.RS 4
+In normal mode of operation git\-subrepo only prints messages in case of errors\&. For debugging purposes it might be beneficial to understand which commands are being executed and possibly replay them\&. By specifying this option all command invocations are reported to the user\&.
 .RE
 .SH "GIT"
 .sp
