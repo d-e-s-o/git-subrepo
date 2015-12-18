@@ -228,5 +228,76 @@ class TestGitSubrepo(TestCase):
       self.assertTrue(exists(app.path("src", "lib", "lib.h")))
 
 
+  def testAddEqualRepos(self):
+    """Verify that we can merge two similar subrepos pulled in as dependencies."""
+    with GitRepository() as lib1,\
+         GitRepository() as lib2,\
+         GitRepository() as lib3,\
+         GitRepository() as app:
+      mkdir(lib1.path("lib1"))
+      write(lib1, "lib1", "lib1.py", data="pass")
+      lib1.add(lib1.path("lib1", "lib1.py"))
+      lib1.commit()
+
+      lib2.remote("add", "--fetch", "lib1", lib1.path())
+      lib2.subrepo("add", "lib1", ".", "master")
+
+      mkdir(lib2.path("lib2"))
+      write(lib2, "lib2", "lib2.py", data="def foo(): pass")
+      lib2.add(lib2.path("lib2", "lib2.py"))
+      lib2.commit()
+
+      mkdir(lib3.path("lib3"))
+      write(lib3, "lib3", "lib3.py", data="def bar(): pass")
+      lib3.add(lib3.path("lib3", "lib3.py"))
+      lib3.commit()
+
+      lib3.remote("add", "--fetch", "lib1", lib1.path())
+      lib3.subrepo("add", "lib1", ".", "master")
+
+      self.assertEqual(read(lib2, "lib1", "lib1.py"), read(lib1, "lib1", "lib1.py"))
+      self.assertEqual(read(lib3, "lib1", "lib1.py"), read(lib1, "lib1", "lib1.py"))
+
+      app.remote("add", "--fetch", "lib2", lib2.path())
+      app.remote("add", "--fetch", "lib3", lib3.path())
+      app.subrepo("add", "lib2", ".", "master")
+      app.subrepo("add", "lib3", ".", "master")
+
+      self.assertEqual(read(app, "lib1", "lib1.py"), read(lib1, "lib1", "lib1.py"))
+      self.assertEqual(read(app, "lib2", "lib2.py"), read(lib2, "lib2", "lib2.py"))
+      self.assertEqual(read(app, "lib3", "lib3.py"), read(lib3, "lib3", "lib3.py"))
+
+      # Now create some more commits in each of the repositories and
+      # update the imports.
+      write(lib1, "lib1", "lib1.py", data="def baz(): pass")
+      lib1.add(lib1.path("lib1", "lib1.py"))
+      lib1.commit()
+
+      lib2.fetch("lib1")
+      lib2.subrepo("add", "lib1", ".", "master")
+
+      self.assertEqual(read(lib2, "lib1", "lib1.py"), read(lib1, "lib1", "lib1.py"))
+
+      write(lib2, "lib2", "lib2.py", data="pass")
+      lib2.add(lib2.path("lib2", "lib2.py"))
+      lib2.commit()
+
+      write(lib3, "lib3", "lib3.py", data="def foobar(): pass")
+      lib3.add(lib3.path("lib3", "lib3.py"))
+      lib3.commit()
+
+      lib3.fetch("lib1")
+      lib3.subrepo("add", "lib1", ".", "master")
+
+      app.fetch("lib2")
+      app.fetch("lib3")
+      app.subrepo("add", "lib2", ".", "master")
+      app.subrepo("add", "lib3", ".", "master")
+
+      self.assertEqual(read(app, "lib1", "lib1.py"), read(lib1, "lib1", "lib1.py"))
+      self.assertEqual(read(app, "lib2", "lib2.py"), read(lib2, "lib2", "lib2.py"))
+      self.assertEqual(read(app, "lib3", "lib3.py"), read(lib3, "lib3", "lib3.py"))
+
+
 if __name__ == "__main__":
   main()

@@ -145,6 +145,105 @@ update
 </varlistentry>
 </variablelist>
 </refsect1>
+<refsect1 id="_root_imports">
+<title>ROOT IMPORTS</title>
+<simpara>One advantage of subrepos over git&#8217;s native submodules is the fact that
+the source code of the destination is embedded in the repository. The
+ability to have ordinary commits as opposed to merges as they are
+created when subtrees are in use is beneficial for rebasing over
+imports.</simpara>
+<simpara>However, there is another feature that is unique to subrepos: the
+ability to import remote repositories directly into the root directory
+of the owning repository. Consider the following example:</simpara>
+<literallayout class="monospaced">lib1
+└── src
+    └── lib1.py</literallayout>
+<literallayout class="monospaced">lib2
+└── src
+    ├── lib1
+    │   └── src
+    │       └── lib1.py
+    └── lib2.py</literallayout>
+<simpara>In this example we have two libraries, <emphasis>lib1</emphasis> and <emphasis>lib2</emphasis>. The latter
+depends on the former and, hence, imports it in the form of a subrepo.
+Now imagine an application, <emphasis>app</emphasis>, using <emphasis>lib2</emphasis>. Once <emphasis>app</emphasis> imports
+<emphasis>lib2</emphasis> it will implicitly import <emphasis>lib1</emphasis> as well (which is intended
+because it is an implicit dependency).</simpara>
+<literallayout class="monospaced">app
+└── src
+    ├── app.py
+    └── lib2
+        └── src
+            ├── lib1
+            │   └── src
+            │       └── lib1.py
+            └── lib2.py</literallayout>
+<simpara>With each import the level of nesting increases. Not only that, there is
+also a non-uniformity in the directory layout: the source code in the
+owning repository is scattered counter-intuitively over different
+directory levels, making it unnecessarily complex to find files. These
+problems are inherent the moment a repository starts having
+subdirectories.
+Such problems vanish when we restructure the repositories slightly and
+then import each directly into the owning repository&#8217;s root directory,
+like so:</simpara>
+<literallayout class="monospaced">lib1
+└── lib1
+    └── src
+        └── lib1.py</literallayout>
+<literallayout class="monospaced">lib2
+├── lib1
+│   └── src
+│       └── lib1.py
+└── lib2
+    └── src
+        └── lib2.py</literallayout>
+<literallayout class="monospaced">app
+├── app
+│   └── src
+│       └── app.py
+├── lib1
+│   └── src
+│       └── lib1.py
+└── lib2
+    └── src
+        └── lib2.py</literallayout>
+<simpara>Now an interesting question arises: since the root name space of the
+owning repository is shared, how are conflicts handled? The answer is
+simple: the last import will take precedence and applied are the changes
+from the current state of the owning repository to one where the subrepo
+to import is at the desired state.</simpara>
+<simpara>This approach also solves another otherwise inherent problem, namely
+that if each subrepo pulls in its dependencies and two subrepos have the
+same dependency, the source code of this last dependency will reside in
+the repository at two places. From a logical point of view that is not
+necessary a problem. However, if one considers how the module systems of
+a variety of languages or their compilers/interpreters work it becomes
+apparent that one of the two is effectively dead code: the path to each
+subrepo has to be registered somewhere and this path will be searched
+for a match during compile or run time. Yet, only the first match that
+is found is used. This constraint in turn implies that both versions of
+the subrepo need to be "compatible" if they are to be used in a common
+application and we must be able to agree on using a single version.</simpara>
+<simpara>Extending the example from before with a third library, <emphasis>lib3</emphasis> that
+depends on <emphasis>lib1</emphasis> as well, and making <emphasis>app</emphasis> require <emphasis>lib3</emphasis> in addition
+to <emphasis>lib2</emphasis>, we get away with the following structure:</simpara>
+<literallayout class="monospaced">app
+├── app
+│   └── src
+│       └── app.py
+├── lib1
+│   └── src
+│       └── lib1.py
+├── lib2
+│   └── src
+│       └── lib2.py
+└── lib3
+    └── src
+        └── lib3.py</literallayout>
+<simpara>Here, <emphasis>lib1</emphasis> is used by both <emphasis>lib2</emphasis> and <emphasis>lib3</emphasis> without the need to have
+a private copy in each. By design, it must be compatible with both.</simpara>
+</refsect1>
 <refsect1 id="_git">
 <title>GIT</title>
 <simpara>To be used in conjunction with the <citerefentry>

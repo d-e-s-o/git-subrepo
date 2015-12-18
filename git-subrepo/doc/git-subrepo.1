@@ -82,6 +82,138 @@ By default git\-subrepo creates a commit message containing only the essential i
 .RS 4
 In normal mode of operation git\-subrepo only prints messages in case of errors\&. For debugging purposes it might be beneficial to understand which commands are being executed and possibly replay them\&. By specifying this option all command invocations are reported to the user\&.
 .RE
+.SH "ROOT IMPORTS"
+.sp
+One advantage of subrepos over git\(cqs native submodules is the fact that the source code of the destination is embedded in the repository\&. The ability to have ordinary commits as opposed to merges as they are created when subtrees are in use is beneficial for rebasing over imports\&.
+.sp
+However, there is another feature that is unique to subrepos: the ability to import remote repositories directly into the root directory of the owning repository\&. Consider the following example:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+lib1
+└── src
+    └── lib1\&.py
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+lib2
+└── src
+    ├── lib1
+    │\ \&\ \& └── src
+    │\ \&\ \&     └── lib1\&.py
+    └── lib2\&.py
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+In this example we have two libraries, \fIlib1\fR and \fIlib2\fR\&. The latter depends on the former and, hence, imports it in the form of a subrepo\&. Now imagine an application, \fIapp\fR, using \fIlib2\fR\&. Once \fIapp\fR imports \fIlib2\fR it will implicitly import \fIlib1\fR as well (which is intended because it is an implicit dependency)\&.
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+app
+└── src
+    ├── app\&.py
+    └── lib2
+        └── src
+            ├── lib1
+            │\ \&\ \& └── src
+            │\ \&\ \&     └── lib1\&.py
+            └── lib2\&.py
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+With each import the level of nesting increases\&. Not only that, there is also a non\-uniformity in the directory layout: the source code in the owning repository is scattered counter\-intuitively over different directory levels, making it unnecessarily complex to find files\&. These problems are inherent the moment a repository starts having subdirectories\&. Such problems vanish when we restructure the repositories slightly and then import each directly into the owning repository\(cqs root directory, like so:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+lib1
+└── lib1
+    └── src
+        └── lib1\&.py
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+lib2
+├── lib1
+│\ \&\ \& └── src
+│\ \&\ \&     └── lib1\&.py
+└── lib2
+    └── src
+        └── lib2\&.py
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+app
+├── app
+│\ \&\ \& └── src
+│\ \&\ \&     └── app\&.py
+├── lib1
+│\ \&\ \& └── src
+│\ \&\ \&     └── lib1\&.py
+└── lib2
+    └── src
+        └── lib2\&.py
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+Now an interesting question arises: since the root name space of the owning repository is shared, how are conflicts handled? The answer is simple: the last import will take precedence and applied are the changes from the current state of the owning repository to one where the subrepo to import is at the desired state\&.
+.sp
+This approach also solves another otherwise inherent problem, namely that if each subrepo pulls in its dependencies and two subrepos have the same dependency, the source code of this last dependency will reside in the repository at two places\&. From a logical point of view that is not necessary a problem\&. However, if one considers how the module systems of a variety of languages or their compilers/interpreters work it becomes apparent that one of the two is effectively dead code: the path to each subrepo has to be registered somewhere and this path will be searched for a match during compile or run time\&. Yet, only the first match that is found is used\&. This constraint in turn implies that both versions of the subrepo need to be "compatible" if they are to be used in a common application and we must be able to agree on using a single version\&.
+.sp
+Extending the example from before with a third library, \fIlib3\fR that depends on \fIlib1\fR as well, and making \fIapp\fR require \fIlib3\fR in addition to \fIlib2\fR, we get away with the following structure:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+app
+├── app
+│\ \&\ \& └── src
+│\ \&\ \&     └── app\&.py
+├── lib1
+│\ \&\ \& └── src
+│\ \&\ \&     └── lib1\&.py
+├── lib2
+│\ \&\ \& └── src
+│\ \&\ \&     └── lib2\&.py
+└── lib3
+    └── src
+        └── lib3\&.py
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+Here, \fIlib1\fR is used by both \fIlib2\fR and \fIlib3\fR without the need to have a private copy in each\&. By design, it must be compatible with both\&.
 .SH "GIT"
 .sp
 To be used in conjunction with the \fBgit\fR(1) suite
