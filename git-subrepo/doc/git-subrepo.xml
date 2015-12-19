@@ -11,16 +11,15 @@
 </refmeta>
 <refnamediv>
   <refname>git-subrepo</refname>
-  <refpurpose>Add and update subrepos</refpurpose>
+  <refpurpose>Import a subrepo</refpurpose>
 </refnamediv>
 <refsynopsisdiv id="_synopsis">
-<literallayout><emphasis>git subrepo</emphasis> add [--edit] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
-<emphasis>git subrepo</emphasis> update [--edit] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;</literallayout>
+<literallayout><emphasis>git subrepo</emphasis> import [--edit] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;</literallayout>
 <simpara></simpara>
 </refsynopsisdiv>
 <refsect1 id="_description">
 <title>DESCRIPTION</title>
-<simpara>Adds and updates subrepos.</simpara>
+<simpara>Imports a subrepo at a given prefix representing a given commit.</simpara>
 <simpara>A subrepo allows you to keep another Git repository in a subdirectory
 of your current repository (the current repository is termed the
 "superrepo"). The other repository&#8217;s source code is thereby embedded
@@ -45,27 +44,14 @@ required.</simpara>
 <variablelist>
 <varlistentry>
 <term>
-add
+import
 </term>
 <listitem>
 <simpara>
-  Add the given remote repository as a subrepo at the given prefix/path
-  in the state as specified by the given commit. A new commit will be
-  created in the superrepo that imports the source code.
-</simpara>
-</listitem>
-</varlistentry>
-<varlistentry>
-<term>
-update
-</term>
-<listitem>
-<simpara>
-  Update an existing subrepo so that the state of the source code in the
-  subdirectory specified by the given prefix matches that of the remote
-  repository at the given commit. A new commit will be created in the
-  superrepo that contains the differences between the state before
-  and after the update.
+  Import the given remote repository as a subrepo at the given
+  prefix/path in the state as specified by the given commit. A new
+  commit will be created in the superrepo that imports the source code.
+  This command handles initial additions as well as incremental updates.
 </simpara>
 </listitem>
 </varlistentry>
@@ -95,8 +81,9 @@ update
 </term>
 <listitem>
 <simpara>
-  Relative path specifying where to add a new subrepo or where an
-  already imported one to update resides.
+  Relative path specifying where to import a subrepo. If code exists at
+  the given prefix the differences to reach the desired state of the
+  specified remote repository will be applied on top.
 </simpara>
 </listitem>
 </varlistentry>

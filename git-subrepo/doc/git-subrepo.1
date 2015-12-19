@@ -2,12 +2,12 @@
 .\"     Title: git-subrepo
 .\"    Author: [FIXME: author] [see http://docbook.sf.net/el/author]
 .\" Generator: DocBook XSL Stylesheets v1.78.0 <http://docbook.sf.net/>
-.\"      Date: 12/16/2015
+.\"      Date: 12/19/2015
 .\"    Manual: Git Manual
 .\"    Source: Git
 .\"  Language: English
 .\"
-.TH "GIT\-SUBREPO" "1" "12/16/2015" "Git" "Git Manual"
+.TH "GIT\-SUBREPO" "1" "12/19/2015" "Git" "Git Manual"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -28,31 +28,25 @@
 .\" * MAIN CONTENT STARTS HERE *
 .\" -----------------------------------------------------------------
 .SH "NAME"
-git-subrepo \- Add and update subrepos
+git-subrepo \- Import a subrepo
 .SH "SYNOPSIS"
 .sp
 .nf
-\fIgit subrepo\fR add [\-\-edit] [\-\-verbose] <remote\-repository> <prefix> <commit>
-\fIgit subrepo\fR update [\-\-edit] [\-\-verbose] <remote\-repository> <prefix> <commit>
+\fIgit subrepo\fR import [\-\-edit] [\-\-verbose] <remote\-repository> <prefix> <commit>
 .fi
 .sp
 .SH "DESCRIPTION"
 .sp
-Adds and updates subrepos\&.
+Imports a subrepo at a given prefix representing a given commit\&.
 .sp
 A subrepo allows you to keep another Git repository in a subdirectory of your current repository (the current repository is termed the "superrepo")\&. The other repository\(cqs source code is thereby embedded directly into this repository\&. This embedding makes subrepos preferable to submodules (see \fBgit-submodule\fR(1)) in many scenarios, as references to another repository cannot become invalid and all dependencies required in the superrepo are contained in it\&. In that sense, subrepos behave similar to subtrees (see \fBgit-subtree\fR(1)) when using the \-\-squash option to squash commits\&. The resulting commit, however, is not a merge in any way\&. Rather, the source code is imported as a "normal" commit, allowing for rebasing to take place, for instance\&.
 .sp
 Being part of the superrepo, clone and pull operations will involve any subrepos equally well, without any additional command invocations being required\&.
 .SH "COMMANDS"
 .PP
-add
+import
 .RS 4
-Add the given remote repository as a subrepo at the given prefix/path in the state as specified by the given commit\&. A new commit will be created in the superrepo that imports the source code\&.
-.RE
-.PP
-update
-.RS 4
-Update an existing subrepo so that the state of the source code in the subdirectory specified by the given prefix matches that of the remote repository at the given commit\&. A new commit will be created in the superrepo that contains the differences between the state before and after the update\&.
+Import the given remote repository as a subrepo at the given prefix/path in the state as specified by the given commit\&. A new commit will be created in the superrepo that imports the source code\&. This command handles initial additions as well as incremental updates\&.
 .RE
 .SH "OPTIONS"
 .PP
@@ -65,7 +59,7 @@ for more details on remote repositories\&.
 .PP
 <prefix>
 .RS 4
-Relative path specifying where to add a new subrepo or where an already imported one to update resides\&.
+Relative path specifying where to import a subrepo\&. If code exists at the given prefix the differences to reach the desired state of the specified remote repository will be applied on top\&.
 .RE
 .PP
 <commit>

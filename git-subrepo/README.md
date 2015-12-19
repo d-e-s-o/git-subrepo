@@ -44,12 +44,12 @@ merge commit is created.
 Usage
 -----
 
-**git-subrepo** offers two commands for working with subrepos: 'add' and
-'update'. In order to import a new subrepo, the 'add' command can be
-used. A subrepo captures the state of a remote repository at a specific
-commit. As such, the first thing to do is to have an up-to-date state of
-the remote repository of interest. If the remote repository is not know
-yet, it can be added like so:
+**git-subrepo** offers a single command for working with subrepos:
+'import'. An import can be used for both the initial addition of a
+subrepo as well as an incremental update. A subrepo captures the state
+of a remote repository at a specific commit. As such, the first thing to
+do is to have an up-to-date state of the remote repository of interest.
+If the remote repository is not know yet, it can be added like so:
 
 ``$ git remote add -f lib <url>``
 
@@ -59,20 +59,23 @@ manual for more information.
 
 Using a remote repository, a new subrepo can be created:
 
-``$ git subrepo add lib src/lib master``
+``$ git subrepo import lib src/lib master``
 
 The above command imports the source code from the remote repository
 'lib' at commit 'master' (which in that case likely references a branch)
 into the directory 'src/lib/' (relative to the importing repository's
 root).
 
-Similarly, a subrepo can be updated to reference the state of a remote
-repository at a different revision:
+Similarly, in order to update a subrepo based on changes that happened
+to the referenced remote repository, specifying a different revision is
+enough:
 
-``$ git subrepo update lib src/lib feature``
+``$ git subrepo import lib src/lib feature``
 
 After invocation of this command the source code below 'src/lib' will
-represent the state of 'lib' at commit 'feature'.
+represent the state of 'lib' at commit 'feature'. The usual ``git``
+syntax for conveying revisions is understood as the last parameter (see
+git-rev-parse(1)).
 
 
 Root Imports

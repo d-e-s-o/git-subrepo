@@ -739,7 +739,7 @@ git-subrepo(1) Manual Page
 <h2>NAME</h2>
 <div class="sectionbody">
 <p>git-subrepo -
-   Add and update subrepos
+   Import a subrepo
 </p>
 </div>
 </div>
@@ -748,8 +748,7 @@ git-subrepo(1) Manual Page
 <h2 id="_synopsis">SYNOPSIS</h2>
 <div class="sectionbody">
 <div class="verseblock">
-<pre class="content"><em>git subrepo</em> add [--edit] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
-<em>git subrepo</em> update [--edit] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;</pre>
+<pre class="content"><em>git subrepo</em> import [--edit] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;</pre>
 <div class="attribution">
 </div></div>
 </div>
@@ -757,7 +756,7 @@ git-subrepo(1) Manual Page
 <div class="sect1">
 <h2 id="_description">DESCRIPTION</h2>
 <div class="sectionbody">
-<div class="paragraph"><p>Adds and updates subrepos.</p></div>
+<div class="paragraph"><p>Imports a subrepo at a given prefix representing a given commit.</p></div>
 <div class="paragraph"><p>A subrepo allows you to keep another Git repository in a subdirectory
 of your current repository (the current repository is termed the
 "superrepo"). The other repository&#8217;s source code is thereby embedded
@@ -779,25 +778,14 @@ required.</p></div>
 <div class="sectionbody">
 <div class="dlist"><dl>
 <dt class="hdlist1">
-add
+import
 </dt>
 <dd>
 <p>
-  Add the given remote repository as a subrepo at the given prefix/path
-  in the state as specified by the given commit. A new commit will be
-  created in the superrepo that imports the source code.
-</p>
-</dd>
-<dt class="hdlist1">
-update
-</dt>
-<dd>
-<p>
-  Update an existing subrepo so that the state of the source code in the
-  subdirectory specified by the given prefix matches that of the remote
-  repository at the given commit. A new commit will be created in the
-  superrepo that contains the differences between the state before
-  and after the update.
+  Import the given remote repository as a subrepo at the given
+  prefix/path in the state as specified by the given commit. A new
+  commit will be created in the superrepo that imports the source code.
+  This command handles initial additions as well as incremental updates.
 </p>
 </dd>
 </dl></div>
@@ -823,8 +811,9 @@ update
 </dt>
 <dd>
 <p>
-  Relative path specifying where to add a new subrepo or where an
-  already imported one to update resides.
+  Relative path specifying where to import a subrepo. If code exists at
+  the given prefix the differences to reach the desired state of the
+  specified remote repository will be applied on top.
 </p>
 </dd>
 <dt class="hdlist1">
@@ -999,7 +988,7 @@ a private copy in each. By design, it must be compatible with both.</p></div>
 <div id="footnotes"><hr /></div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2015-12-16 16:39:33 PST
+Last updated 2015-12-19 13:08:16 PST
 </div>
 </div>
 </body>

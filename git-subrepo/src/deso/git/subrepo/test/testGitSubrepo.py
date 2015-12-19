@@ -103,7 +103,7 @@ class TestGitSubrepo(TestCase):
       lib1.commit()
 
       app.remote("add", "--fetch", "lib1", lib1.path())
-      app.subrepo("add", "lib1", prefix, "master")
+      app.subrepo("import", "lib1", prefix, "master")
 
       # Create an additional non-subrepo commit in the application.
       write(app, "main.c", data="#include \"test.hpp\"")
@@ -121,7 +121,7 @@ class TestGitSubrepo(TestCase):
       lib2.commit()
 
       app.remote("add", "--fetch", "lib2", lib2.path())
-      app.subrepo("add", "lib2", ".", "master")
+      app.subrepo("import", "lib2", ".", "master")
 
       self.assertEqual(read(app, prefix, "test.hpp"), read(lib1, "test.hpp"))
       self.assertEqual(read(app, prefix, "test.bin"), read(lib1, "test.bin"))
@@ -137,7 +137,7 @@ class TestGitSubrepo(TestCase):
       lib1.commit()
 
       app.fetch("lib1")
-      app.subrepo("update", "lib1", prefix, "master")
+      app.subrepo("import", "lib1", prefix, "master")
 
       self.assertEqual(read(app, prefix, "test.hpp"), read(lib1, "test.hpp"))
       self.assertEqual(read(app, prefix, "test.cpp"), read(lib1, "test.cpp"))
@@ -145,8 +145,8 @@ class TestGitSubrepo(TestCase):
       self.assertEqual(read(app, "lib2", "lib2.py"), read(lib2, "lib2", "lib2.py"))
 
 
-  def testAddAndUpdate(self):
-    """Verify that we can add and update subrepos in another repository."""
+  def testImport(self):
+    """Verify that we can import subrepos into another repository."""
     for prefix in (".", "lib", join("src", "lib")):
       for multi_commit in (False, True):
         self.addUpdateAndCheck(prefix, multi_commit=multi_commit)
@@ -161,7 +161,7 @@ class TestGitSubrepo(TestCase):
       r1.commit()
 
       r2.remote("add", "--fetch", "text", r1.path())
-      r2.subrepo("add", "text", "text", "master")
+      r2.subrepo("import", "text", "text", "master")
 
       self.assertEqual(read(r2, "text", "text.dat"), "test42")
 
@@ -173,13 +173,13 @@ class TestGitSubrepo(TestCase):
       r1.commit()
 
       r2.fetch("text")
-      r2.subrepo("update", "text", "text", "master")
+      r2.subrepo("import", "text", "text", "master")
 
       self.assertEqual(read(r2, "text", "text.dat"), "test41")
       self.assertEqual(read(r2, "text", "text2.dat"), "empty")
 
       # Now also "downdate".
-      r2.subrepo("update", "text", "text", "master^")
+      r2.subrepo("import", "text", "text", "master^")
 
       self.assertEqual(read(r2, "text", "text.dat"), "test42")
 
@@ -199,7 +199,7 @@ class TestGitSubrepo(TestCase):
       sha1 = r1.revParse("HEAD")
 
       r2.remote("add", "--fetch", "py", r1.path())
-      r2.subrepo("add", "py", join("src", "lib"), sha1)
+      r2.subrepo("import", "py", join("src", "lib"), sha1)
 
       self.assertEqual(read(r2, "src", "lib", "main.py"), content)
 
@@ -221,7 +221,7 @@ class TestGitSubrepo(TestCase):
       mkdir(app.path("src"))
       chdir(app.path("src"))
       try:
-        app.subrepo("add", "lib", "lib", "master")
+        app.subrepo("import", "lib", "lib", "master")
       finally:
         chdir(cwd)
 
@@ -240,7 +240,7 @@ class TestGitSubrepo(TestCase):
       lib1.commit()
 
       lib2.remote("add", "--fetch", "lib1", lib1.path())
-      lib2.subrepo("add", "lib1", ".", "master")
+      lib2.subrepo("import", "lib1", ".", "master")
 
       mkdir(lib2.path("lib2"))
       write(lib2, "lib2", "lib2.py", data="def foo(): pass")
@@ -253,15 +253,15 @@ class TestGitSubrepo(TestCase):
       lib3.commit()
 
       lib3.remote("add", "--fetch", "lib1", lib1.path())
-      lib3.subrepo("add", "lib1", ".", "master")
+      lib3.subrepo("import", "lib1", ".", "master")
 
       self.assertEqual(read(lib2, "lib1", "lib1.py"), read(lib1, "lib1", "lib1.py"))
       self.assertEqual(read(lib3, "lib1", "lib1.py"), read(lib1, "lib1", "lib1.py"))
 
       app.remote("add", "--fetch", "lib2", lib2.path())
       app.remote("add", "--fetch", "lib3", lib3.path())
-      app.subrepo("add", "lib2", ".", "master")
-      app.subrepo("add", "lib3", ".", "master")
+      app.subrepo("import", "lib2", ".", "master")
+      app.subrepo("import", "lib3", ".", "master")
 
       self.assertEqual(read(app, "lib1", "lib1.py"), read(lib1, "lib1", "lib1.py"))
       self.assertEqual(read(app, "lib2", "lib2.py"), read(lib2, "lib2", "lib2.py"))
@@ -274,7 +274,7 @@ class TestGitSubrepo(TestCase):
       lib1.commit()
 
       lib2.fetch("lib1")
-      lib2.subrepo("add", "lib1", ".", "master")
+      lib2.subrepo("import", "lib1", ".", "master")
 
       self.assertEqual(read(lib2, "lib1", "lib1.py"), read(lib1, "lib1", "lib1.py"))
 
@@ -287,12 +287,12 @@ class TestGitSubrepo(TestCase):
       lib3.commit()
 
       lib3.fetch("lib1")
-      lib3.subrepo("add", "lib1", ".", "master")
+      lib3.subrepo("import", "lib1", ".", "master")
 
       app.fetch("lib2")
       app.fetch("lib3")
-      app.subrepo("add", "lib2", ".", "master")
-      app.subrepo("add", "lib3", ".", "master")
+      app.subrepo("import", "lib2", ".", "master")
+      app.subrepo("import", "lib3", ".", "master")
 
       self.assertEqual(read(app, "lib1", "lib1.py"), read(lib1, "lib1", "lib1.py"))
       self.assertEqual(read(app, "lib2", "lib2.py"), read(lib2, "lib2", "lib2.py"))

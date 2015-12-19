@@ -3,19 +3,18 @@ git-subrepo(1)
 
 NAME
 ----
-git-subrepo - Add and update subrepos
+git-subrepo - Import a subrepo
 
 
 SYNOPSIS
 --------
 [verse]
-'git subrepo' add [--edit] [--verbose] <remote-repository> <prefix> <commit>
-'git subrepo' update [--edit] [--verbose] <remote-repository> <prefix> <commit>
+'git subrepo' import [--edit] [--verbose] <remote-repository> <prefix> <commit>
 
 
 DESCRIPTION
 -----------
-Adds and updates subrepos.
+Imports a subrepo at a given prefix representing a given commit.
 
 A subrepo allows you to keep another Git repository in a subdirectory
 of your current repository (the current repository is termed the
@@ -35,17 +34,11 @@ required.
 
 COMMANDS
 --------
-add::
-  Add the given remote repository as a subrepo at the given prefix/path
-  in the state as specified by the given commit. A new commit will be
-  created in the superrepo that imports the source code.
-
-update::
-  Update an existing subrepo so that the state of the source code in the
-  subdirectory specified by the given prefix matches that of the remote
-  repository at the given commit. A new commit will be created in the
-  superrepo that contains the differences between the state before
-  and after the update.
+import::
+  Import the given remote repository as a subrepo at the given
+  prefix/path in the state as specified by the given commit. A new
+  commit will be created in the superrepo that imports the source code.
+  This command handles initial additions as well as incremental updates.
 
 OPTIONS
 -------
@@ -56,8 +49,9 @@ OPTIONS
   on remote repositories.
 
 <prefix>::
-  Relative path specifying where to add a new subrepo or where an
-  already imported one to update resides.
+  Relative path specifying where to import a subrepo. If code exists at
+  the given prefix the differences to reach the desired state of the
+  specified remote repository will be applied on top.
 
 <commit>::
   Commit representing the state at which to import the given remote

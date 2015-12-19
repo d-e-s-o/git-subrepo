@@ -121,14 +121,14 @@ def addOptionalArgs(parser):
   )
 
 
-def addAddParser(parser):
-  """Add a parser for the 'add' command to another parser."""
-  add = parser.add_parser(
-    "add", add_help=False, formatter_class=SubLevelHelpFormatter,
-    help="Add a subrepo.",
+def addImportParser(parser):
+  """Add a parser for the 'import' command to another parser."""
+  import_ = parser.add_parser(
+    "import", add_help=False, formatter_class=SubLevelHelpFormatter,
+    help="Import a subrepo.",
   )
 
-  required = add.add_argument_group("Required arguments")
+  required = import_.add_argument_group("Required arguments")
   required.add_argument(
     "remote-repository", action="store",
     help="A name of a remote repository. The remote repository must already be "
@@ -145,33 +145,7 @@ def addAddParser(parser):
     help="A commit of the remote repository to check out.",
   )
 
-  optional = add.add_argument_group("Optional arguments")
-  addOptionalArgs(optional)
-  addStandardArgs(optional)
-
-
-def addUpdateParser(parser):
-  """Add a parser for the 'update' command to another parser."""
-  add = parser.add_parser(
-    "update", add_help=False, formatter_class=SubLevelHelpFormatter,
-    help="Update a subrepo.",
-  )
-
-  required = add.add_argument_group("Required arguments")
-  required.add_argument(
-    "remote-repository", action="store",
-    help="A name of a remote repository.",
-  )
-  required.add_argument(
-    "prefix", action="store",
-    help="The prefix to the subrepo.",
-  )
-  required.add_argument(
-    "commit", action="store",
-    help="A commit in the remote repository to update to.",
-  )
-
-  optional = add.add_argument_group("Optional arguments")
+  optional = import_.add_argument_group("Optional arguments")
   addOptionalArgs(optional)
   addStandardArgs(optional)
 
@@ -190,8 +164,7 @@ def setupArgumentParser():
   optional = parser.add_argument_group("Optional arguments")
   addStandardArgs(optional)
 
-  addAddParser(subparsers)
-  addUpdateParser(subparsers)
+  addImportParser(subparsers)
   return parser
 
 
@@ -252,7 +225,6 @@ def main(argv):
   namespace = parser.parse_args(argv[1:])
   VERBOSE = namespace.verbose
 
-  cmd = namespace.command
   repo = getattr(namespace, "remote-repository")
   root = retrieveRepositoryRoot()
   commit = namespace.commit
@@ -365,8 +337,8 @@ def main(argv):
     spring(commands)
 
   options = ["--edit"] if namespace.edit else []
-  message = "{cmd} subrepo {prefix}:{repo} at {sha1}"
-  message = message.format(cmd=cmd, prefix=prefix, repo=repo, sha1=sha1)
+  message = "import subrepo {prefix}:{repo} at {sha1}"
+  message = message.format(prefix=prefix, repo=repo, sha1=sha1)
   execute(GIT, "commit", "--no-verify", "--message=%s" % message, *options)
   return 0
 
