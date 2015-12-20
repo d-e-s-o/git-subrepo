@@ -22,6 +22,7 @@
 from deso.execute import (
   execute,
   findCommand,
+  ProcessError,
 )
 from deso.git.repo import (
   read,
@@ -297,6 +298,28 @@ class TestGitSubrepo(TestCase):
       self.assertEqual(read(app, "lib1", "lib1.py"), read(lib1, "lib1", "lib1.py"))
       self.assertEqual(read(app, "lib2", "lib2.py"), read(lib2, "lib2", "lib2.py"))
       self.assertEqual(read(app, "lib3", "lib3.py"), read(lib3, "lib3", "lib3.py"))
+
+
+  def testImportSubrepoAtCurrentState(self):
+    """Try importing a subrepo that is already at the desired state."""
+    def doTest(prefix):
+      """Perform the test by importing at the given prefix."""
+      with GitRepository() as r1,\
+           GitRepository() as r2:
+        write(r1, "test.py", data="# test.py")
+        r1.add("test.py")
+        r1.commit()
+
+        r2.remote("add", "--fetch", "test", r1.path())
+        r2.subrepo("import", "test", prefix, "master")
+
+        # Try importing the subrepo a second time, to the same state. This
+        # invocation must fail.
+        with self.assertRaisesRegex(ProcessError, r"No changes"):
+          r2.subrepo("import", "test", prefix, "master")
+
+    doTest(".")
+    doTest("prefix")
 
 
 if __name__ == "__main__":

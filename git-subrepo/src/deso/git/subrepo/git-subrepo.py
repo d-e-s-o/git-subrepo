@@ -43,6 +43,7 @@ from os.path import (
 )
 from sys import (
   argv as sysargv,
+  stderr,
 )
 
 
@@ -217,6 +218,21 @@ def hasHead():
     return False
 
 
+def hasCachedChanges():
+  """Check if the repository has changes."""
+  try:
+    # When using the --exit-code option the command will return 1 (i.e.,
+    # cause an exception to be raised) in case there are changes and 0
+    # otherwise.
+    # Note that we cannot safely use git-diff-index or git-diff-tree
+    # here because we cannot guarantee that a HEAD exists (and those
+    # commands require some form of tree-ish or commit to be provided).
+    execute(GIT, "diff", "--cached", "--no-patch", "--exit-code", "--quiet")
+    return False
+  except ProcessError:
+    return True
+
+
 def main(argv):
   """The main function interprets the arguments and acts upon them."""
   global VERBOSE
@@ -335,6 +351,12 @@ def main(argv):
       git_apply,
     ]
     spring(commands)
+
+  if not hasCachedChanges():
+    # Behave similarly to git commit when invoked with no changes made
+    # to the repository's state and return 1.
+    print("No changes", file=stderr)
+    return 1
 
   options = ["--edit"] if namespace.edit else []
   message = "import subrepo {prefix}:{repo} at {sha1}"
