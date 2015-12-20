@@ -322,5 +322,21 @@ class TestGitSubrepo(TestCase):
     doTest("prefix")
 
 
+  def testImportEmptySubrepo(self):
+    """Try importing an empty subrepo."""
+    def doTest(prefix):
+      """Perform the test by importing at the given prefix."""
+      with GitRepository() as r1,\
+           GitRepository() as r2:
+        r1.commit("--allow-empty")
+        r2.remote("add", "--fetch", "r1", r1.path())
+
+        with self.assertRaisesRegex(ProcessError, r"No changes"):
+          r2.subrepo("import", "r1", prefix, "master")
+
+    doTest("./")
+    doTest("r1")
+
+
 if __name__ == "__main__":
   main()

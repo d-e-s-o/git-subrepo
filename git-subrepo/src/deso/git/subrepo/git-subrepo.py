@@ -37,6 +37,7 @@ from os import (
   sep,
 )
 from os.path import (
+  basename,
   join,
   lexists,
   relpath,
@@ -45,9 +46,13 @@ from sys import (
   argv as sysargv,
   stderr,
 )
+from tempfile import (
+  mktemp,
+)
 
 
 GIT = findCommand("git")
+ECHO = findCommand("echo")
 VERBOSE = False
 
 
@@ -233,6 +238,15 @@ def hasCachedChanges():
     return True
 
 
+def retrieveDummyPatch(file_):
+  """Retrieve a dummy patch to stop git-apply from returning an error code on an empty diff."""
+  return """\
+diff --git {file} {file}
+new file mode 100644
+index 000000..000000
+""".format(file=file_)
+
+
 def main(argv):
   """The main function interprets the arguments and acts upon them."""
   global VERBOSE
@@ -297,7 +311,22 @@ def main(argv):
     # state. If there is something on disk we create a patch reverting
     # those contents first and then apply the full diff as before.
 
-    pipe_cmds = []
+    # With our git-apply invocation below we have a problem: the
+    # patch resulting from the git-diff-index and git-diff-tree
+    # invocations might be empty in case the repository has no HEAD and
+    # the imported remote repository is effectively empty. Such an empty
+    # patch, however, causes git-apply to fail, which is undesired. We
+    # cannot work around this by catching the resulting ProcessError
+    # because that could mask other errors. So the work around is to
+    # emit a patch into the pipeline that simply has no effect. To that
+    # end, we generate a temporary file name (without generating the
+    # actual file; and yes, we use a deprecated function because that
+    # *is* the correct way and deprecating it instead of educating
+    # people is simply wrong). We then tell git-apply to exclude this
+    # very file.
+    file_ = basename(mktemp(prefix="null", dir=root))
+    pipe_cmds = [[ECHO, retrieveDummyPatch(file_)]]
+
     # Note that we deliberately choose to perform the weakest check
     # possible here to detect presence of the given prefix (that is, we
     # just check if prefix exists at all, not if it is a directory, if
@@ -313,7 +342,7 @@ def main(argv):
 
     commands = [
       pipe_cmds,
-      git_apply,
+      git_apply + ["--exclude=%s" % file_],
     ]
     spring(commands)
   else:
