@@ -979,6 +979,50 @@ a private copy in each. By design, it must be compatible with both.</p></div>
 </div>
 </div>
 <div class="sect1">
+<h2 id="_examples">EXAMPLES</h2>
+<div class="sectionbody">
+<div class="paragraph"><p>Assuming two repositories, <em>lib</em> and <em>app</em>, that initially do not know
+each other but are located in the same directory, the following example
+illustrates how to import the former as a subrepo of the latter:</p></div>
+<div class="listingblock">
+<div class="content">
+<pre><code>$ cd app/
+$ git remote add -f lib ../lib/</code></pre>
+</div></div>
+<div class="paragraph"><p>At this point <em>lib</em> is known to <em>app</em>.</p></div>
+<div class="listingblock">
+<div class="content">
+<pre><code>$ git subrepo import lib . master</code></pre>
+</div></div>
+<div class="paragraph"><p>This command pulls in the contents of <em>lib</em> into the root directory of
+<em>app</em>. A new commit will be created in <em>app</em> that contains the changes
+that were made.</p></div>
+<div class="paragraph"><p>It is also possible to import the remote repository into any other
+directory, e.g., foo/:</p></div>
+<div class="listingblock">
+<div class="content">
+<pre><code>$ git subrepo import lib foo/ master</code></pre>
+</div></div>
+<div class="paragraph"><p>Imagine that <em>lib</em> is now being updated.</p></div>
+<div class="listingblock">
+<div class="content">
+<pre><code>$ cd ../lib/
+$ edit hello.c
+$ git commit --message 'update' hello.c</code></pre>
+</div></div>
+<div class="paragraph"><p>If we want to have these changes in <em>app</em> we can update the subrepo:</p></div>
+<div class="listingblock">
+<div class="content">
+<pre><code>$ cd ../app/
+$ git fetch lib
+$ git subrepo import lib foo/ master</code></pre>
+</div></div>
+<div class="paragraph"><p>Now the subrepo <em>lib</em> in directory foo/ contains the most recent state
+of the original <em>lib</em> while the one imported into the root is still at
+the previous state.</p></div>
+</div>
+</div>
+<div class="sect1">
 <h2 id="_git">GIT</h2>
 <div class="sectionbody">
 <div class="paragraph"><p>To be used in conjunction with the <a href="git.html">git(1)</a> suite</p></div>
@@ -988,7 +1032,7 @@ a private copy in each. By design, it must be compatible with both.</p></div>
 <div id="footnotes"><hr /></div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2015-12-19 13:08:16 PST
+Last updated 2015-12-20 15:53:53 PST
 </div>
 </div>
 </body>

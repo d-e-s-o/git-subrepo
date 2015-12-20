@@ -185,6 +185,56 @@ to 'lib2', we get away with the following structure:
 Here, 'lib1' is used by both 'lib2' and 'lib3' without the need to have
 a private copy in each. By design, it must be compatible with both.
 
+
+EXAMPLES
+--------
+
+Assuming two repositories, 'lib' and 'app', that initially do not know
+each other but are located in the same directory, the following example
+illustrates how to import the former as a subrepo of the latter:
+
+------------
+$ cd app/
+$ git remote add -f lib ../lib/
+------------
+
+At this point 'lib' is known to 'app'.
+
+------------
+$ git subrepo import lib . master
+------------
+
+This command pulls in the contents of 'lib' into the root directory of
+'app'. A new commit will be created in 'app' that contains the changes
+that were made.
+
+It is also possible to import the remote repository into any other
+directory, e.g., foo/:
+
+------------
+$ git subrepo import lib foo/ master
+------------
+
+Imagine that 'lib' is now being updated.
+
+------------
+$ cd ../lib/
+$ edit hello.c
+$ git commit --message 'update' hello.c
+------------
+
+If we want to have these changes in 'app' we can update the subrepo:
+
+------------
+$ cd ../app/
+$ git fetch lib
+$ git subrepo import lib foo/ master
+------------
+
+Now the subrepo 'lib' in directory foo/ contains the most recent state
+of the original 'lib' while the one imported into the root is still at
+the previous state.
+
 GIT
 ---
 To be used in conjunction with the linkgit:git[1] suite

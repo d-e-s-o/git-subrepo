@@ -231,6 +231,33 @@ to <emphasis>lib2</emphasis>, we get away with the following structure:</simpara
 <simpara>Here, <emphasis>lib1</emphasis> is used by both <emphasis>lib2</emphasis> and <emphasis>lib3</emphasis> without the need to have
 a private copy in each. By design, it must be compatible with both.</simpara>
 </refsect1>
+<refsect1 id="_examples">
+<title>EXAMPLES</title>
+<simpara>Assuming two repositories, <emphasis>lib</emphasis> and <emphasis>app</emphasis>, that initially do not know
+each other but are located in the same directory, the following example
+illustrates how to import the former as a subrepo of the latter:</simpara>
+<literallayout class="monospaced">$ cd app/
+$ git remote add -f lib ../lib/</literallayout><simpara></simpara>
+<simpara>At this point <emphasis>lib</emphasis> is known to <emphasis>app</emphasis>.</simpara>
+<literallayout class="monospaced">$ git subrepo import lib . master</literallayout><simpara></simpara>
+<simpara>This command pulls in the contents of <emphasis>lib</emphasis> into the root directory of
+<emphasis>app</emphasis>. A new commit will be created in <emphasis>app</emphasis> that contains the changes
+that were made.</simpara>
+<simpara>It is also possible to import the remote repository into any other
+directory, e.g., foo/:</simpara>
+<literallayout class="monospaced">$ git subrepo import lib foo/ master</literallayout><simpara></simpara>
+<simpara>Imagine that <emphasis>lib</emphasis> is now being updated.</simpara>
+<literallayout class="monospaced">$ cd ../lib/
+$ edit hello.c
+$ git commit --message 'update' hello.c</literallayout><simpara></simpara>
+<simpara>If we want to have these changes in <emphasis>app</emphasis> we can update the subrepo:</simpara>
+<literallayout class="monospaced">$ cd ../app/
+$ git fetch lib
+$ git subrepo import lib foo/ master</literallayout><simpara></simpara>
+<simpara>Now the subrepo <emphasis>lib</emphasis> in directory foo/ contains the most recent state
+of the original <emphasis>lib</emphasis> while the one imported into the root is still at
+the previous state.</simpara>
+</refsect1>
 <refsect1 id="_git">
 <title>GIT</title>
 <simpara>To be used in conjunction with the <citerefentry>
