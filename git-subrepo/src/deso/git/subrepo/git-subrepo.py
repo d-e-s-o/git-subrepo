@@ -247,27 +247,8 @@ index 000000..000000
 """.format(file=file_)
 
 
-def main(argv):
-  """The main function interprets the arguments and acts upon them."""
-  global VERBOSE
-
-  parser = setupArgumentParser()
-  namespace = parser.parse_args(argv[1:])
-  VERBOSE = namespace.verbose
-
-  repo = getattr(namespace, "remote-repository")
-  root = retrieveRepositoryRoot()
-  commit = namespace.commit
-  # The user-given prefix is to be treated relative to the current
-  # working directory. This directory is not necessarily equal to the
-  # current repository's root. So we have to perform some path magic in
-  # order to convert the prefix into one relative to the git
-  # repository's root. If we did nothing here git would always treat the
-  # prefix relative to the root directory which would result in
-  # unexpected behavior.
-  prefix = relpath(namespace.prefix)
-  prefix = relpath(prefix, start=root)
-  prefix = trail(prefix)
+def import_(root, repo, prefix, commit, edit=False):
+  """Import a remote repository at a given commit at a given prefix."""
   # If the prefix resolved to this expression then the subrepo addition
   # is to happen in the root of the repository. This case needs some
   # special treatment later on.
@@ -387,11 +368,35 @@ def main(argv):
     print("No changes", file=stderr)
     return 1
 
-  options = ["--edit"] if namespace.edit else []
+  options = ["--edit"] if edit else []
   message = "import subrepo {prefix}:{repo} at {sha1}"
   message = message.format(prefix=prefix, repo=repo, sha1=sha1)
   execute(GIT, "commit", "--no-verify", "--message=%s" % message, *options)
   return 0
+
+
+def main(argv):
+  """The main function interprets the arguments and acts upon them."""
+  global VERBOSE
+
+  parser = setupArgumentParser()
+  namespace = parser.parse_args(argv[1:])
+  VERBOSE = namespace.verbose
+
+  repo = getattr(namespace, "remote-repository")
+  root = retrieveRepositoryRoot()
+  # The user-given prefix is to be treated relative to the current
+  # working directory. This directory is not necessarily equal to the
+  # current repository's root. So we have to perform some path magic in
+  # order to convert the prefix into one relative to the git
+  # repository's root. If we did nothing here git would always treat the
+  # prefix relative to the root directory which would result in
+  # unexpected behavior.
+  prefix = relpath(namespace.prefix)
+  prefix = relpath(prefix, start=root)
+  prefix = trail(prefix)
+
+  return import_(root, repo, prefix, namespace.commit, edit=namespace.edit)
 
 
 if __name__ == "__main__":
