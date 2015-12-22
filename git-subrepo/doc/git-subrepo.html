@@ -748,7 +748,7 @@ git-subrepo(1) Manual Page
 <h2 id="_synopsis">SYNOPSIS</h2>
 <div class="sectionbody">
 <div class="verseblock">
-<pre class="content"><em>git subrepo</em> import [--edit] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;</pre>
+<pre class="content"><em>git subrepo</em> import [--debug] [--edit] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;</pre>
 <div class="attribution">
 </div></div>
 </div>
@@ -823,6 +823,20 @@ import
 <p>
   Commit representing the state at which to import the given remote
   repository as a subrepo or to which to update the given subrepo to.
+</p>
+</dd>
+<dt class="hdlist1">
+-d
+</dt>
+<dt class="hdlist1">
+--debug
+</dt>
+<dd>
+<p>
+  In the usual case git-subrepo prints an error in case one of the
+  executed git commands failed. When the -d/--debug flag is specified a
+  backtrace will be printed in addition, potentially helping in
+  debugging issues.
 </p>
 </dd>
 <dt class="hdlist1">
@@ -1032,7 +1046,7 @@ the previous state.</p></div>
 <div id="footnotes"><hr /></div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2015-12-20 15:53:53 PST
+Last updated 2015-12-21 07:52:00 PST
 </div>
 </div>
 </body>

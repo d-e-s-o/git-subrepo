@@ -380,5 +380,13 @@ class TestGitSubrepo(TestCase):
           execute(executable, GIT_SUBREPO, "import", "repo", ".", "master")
 
 
+  def testBacktraceOnError(self):
+    """Verify that in case the --debug option is specified we get a backtrace."""
+    with GitRepository() as repo:
+      regex = r"Traceback \(most recent call last\)"
+      with self.assertRaisesRegex(ProcessError, regex):
+        repo.subrepo("import", "--debug", "foo", "bar/", "HEAD")
+
+
 if __name__ == "__main__":
   main()

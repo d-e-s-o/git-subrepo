@@ -117,6 +117,11 @@ def addStandardArgs(parser):
 def addOptionalArgs(parser):
   """Add optional arguments to the argument parser."""
   parser.add_argument(
+    "-d", "--debug", action="store_true", default=False, dest="debug",
+    help="In addition to the already provided error messages also print "
+         "backtraces for encountered errors.",
+  )
+  parser.add_argument(
     "-e", "--edit", action="store_true", default=False, dest="edit",
     help="Open up an editor to allow for editing the commit message.",
   )
@@ -399,6 +404,9 @@ def main(argv):
 
     return import_(root, repo, prefix, namespace.commit, edit=namespace.edit)
   except ProcessError as e:
+    if namespace.debug:
+      raise
+
     print("%s" % e, file=stderr)
     # A process failed executing so we mirror its return value.
     assert e.status != 0

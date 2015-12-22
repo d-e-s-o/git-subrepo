@@ -2,12 +2,12 @@
 .\"     Title: git-subrepo
 .\"    Author: [FIXME: author] [see http://docbook.sf.net/el/author]
 .\" Generator: DocBook XSL Stylesheets v1.78.0 <http://docbook.sf.net/>
-.\"      Date: 12/20/2015
+.\"      Date: 12/21/2015
 .\"    Manual: Git Manual
 .\"    Source: Git
 .\"  Language: English
 .\"
-.TH "GIT\-SUBREPO" "1" "12/20/2015" "Git" "Git Manual"
+.TH "GIT\-SUBREPO" "1" "12/21/2015" "Git" "Git Manual"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -32,7 +32,7 @@ git-subrepo \- Import a subrepo
 .SH "SYNOPSIS"
 .sp
 .nf
-\fIgit subrepo\fR import [\-\-edit] [\-\-verbose] <remote\-repository> <prefix> <commit>
+\fIgit subrepo\fR import [\-\-debug] [\-\-edit] [\-\-verbose] <remote\-repository> <prefix> <commit>
 .fi
 .sp
 .SH "DESCRIPTION"
@@ -65,6 +65,11 @@ Relative path specifying where to import a subrepo\&. If code exists at the give
 <commit>
 .RS 4
 Commit representing the state at which to import the given remote repository as a subrepo or to which to update the given subrepo to\&.
+.RE
+.PP
+\-d, \-\-debug
+.RS 4
+In the usual case git\-subrepo prints an error in case one of the executed git commands failed\&. When the \-d/\-\-debug flag is specified a backtrace will be printed in addition, potentially helping in debugging issues\&.
 .RE
 .PP
 \-e, \-\-edit

@@ -9,7 +9,7 @@ git-subrepo - Import a subrepo
 SYNOPSIS
 --------
 [verse]
-'git subrepo' import [--edit] [--verbose] <remote-repository> <prefix> <commit>
+'git subrepo' import [--debug] [--edit] [--verbose] <remote-repository> <prefix> <commit>
 
 
 DESCRIPTION
@@ -56,6 +56,13 @@ OPTIONS
 <commit>::
   Commit representing the state at which to import the given remote
   repository as a subrepo or to which to update the given subrepo to.
+
+-d::
+--debug::
+  In the usual case git-subrepo prints an error in case one of the
+  executed git commands failed. When the -d/--debug flag is specified a
+  backtrace will be printed in addition, potentially helping in
+  debugging issues.
 
 -e::
 --edit::
