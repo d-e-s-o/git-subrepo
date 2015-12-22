@@ -36,6 +36,9 @@ from os import (
 from os.path import (
   isfile,
 )
+from re import (
+  escape,
+)
 from select import (
   POLLERR,
   POLLHUP,
@@ -43,6 +46,10 @@ from select import (
   POLLNVAL,
   POLLOUT,
   POLLPRI,
+)
+from subprocess import (
+  CalledProcessError,
+  check_call,
 )
 from sys import (
   executable,
@@ -108,6 +115,70 @@ class TestExecute(TestCase):
 
     with self.assertRaisesRegex(ProcessError, regex):
       execute(_CAT, tmp_file, stderr=b"")
+
+
+  def testExitCodeTruncation(self):
+    """Check that exit codes are still truncated.
+
+      This test is less a test but more a verification of the fact that
+      return codes are truncated (exit codes > 255 with only high bits
+      set result in 0 being reported to the outside). This bug is
+      tracked as 'issue24052' [1].
+      Once (or rather: if) this behavior is changed we could think about
+      using 'waitid' as opposed to 'waitpid' since it supports status
+      codes wider than 8 bit.
+
+      [1] http://bugs.python.org/issue24052
+    """
+    execute(executable, "-c", "exit(256)")
+    # Negative codes are affected equally.
+    execute(executable, "-c", "exit(-256)")
+
+
+  def testExitCodeNegativeUnderflow(self):
+    """Check that negative error codes cause an underflow."""
+    with self.assertRaises(ProcessError) as e:
+      execute(executable, "-c", "exit(-1)")
+
+    self.assertEqual(e.exception.status, 255)
+
+
+  def testExitCodeForSignals(self):
+    """Verify that exit codes for the subprocess and execute module are the same."""
+    def retrieveSubprocessStatus(script):
+      """Retrieve the status code of a killed process when run using the subprocess module."""
+      with self.assertRaises(CalledProcessError) as e:
+        check_call([executable, "-c", script])
+
+      return e.exception.returncode
+
+    def retrieveExecuteStatus(script):
+      """Retrieve the status code of a killed process when run using the execute module."""
+      with self.assertRaises(ProcessError) as e:
+        execute(executable, "-c", script)
+
+      return e.exception.status
+
+    def doCheck(script):
+      """Check that exit codes for the subprocess and execute module match for a given script."""
+      execute_status = retrieveExecuteStatus(script)
+      subprocess_status = retrieveSubprocessStatus(script)
+      self.assertEqual(execute_status, subprocess_status)
+
+    doCheck("from os import getpid, kill; kill(getpid(), 9)")
+    doCheck("from os import getpid, kill; kill(getpid(), 15)")
+    doCheck("exit(-1)")
+    doCheck("exit(-127)")
+    doCheck("exit(1)")
+    doCheck("exit(255)")
+
+
+  def testExecuteErrorStatus(self):
+    """Verify that the reported process execution status is correct."""
+    with self.assertRaises(ProcessError) as e:
+      execute(executable, "-c", "exit(25)")
+
+    self.assertEqual(e.exception.status, 25)
 
 
   def testExecuteErrorEventToStringSingle(self):
@@ -346,6 +417,21 @@ class TestExecute(TestCase):
       doTest(i)
 
 
+  def testPipelineErrorStatus(self):
+    """Verify that the reported pipeline status is correct."""
+    command = [executable, "-c", "exit(42)"]
+    commands = [
+      [_TRUE],
+      command,
+      [_TRUE],
+    ]
+    regex = r"%s" % escape(formatCommands(command))
+    with self.assertRaisesRegex(ProcessError, regex) as e:
+      pipeline(commands)
+
+    self.assertEqual(e.exception.status, 42)
+
+
   def testPipelineWithRead(self):
     """Test execution of a pipeline and reading the output."""
     commands = [
@@ -395,6 +481,55 @@ class TestExecute(TestCase):
         pipeline(commands)
 
       commands += [identity]
+
+
+  def testPipelineSigstopHandling(self):
+    """Stop and continue a process in a pipeline and check for proper handling."""
+    script1 = dedent("""\
+      from os import getpid
+      from signal import SIGCONT, signal, sigwait
+      from sys import stdout
+
+      def handler(signum, _):
+        pass
+
+      signal(SIGCONT, handler)
+      print("%d" % getpid())
+      stdout.flush()
+      sigwait([SIGCONT])
+      print("SUCCESS")
+    """)
+
+    # Note that strictly speaking there is no guarantee that we are
+    # actually stopping and continuing the first process. And I have my
+    # doubts that we are. But this is all we got (and probably what we
+    # can do).
+    script2 = dedent("""\
+      from os import kill
+      from signal import SIGCONT, SIGSTOP
+      from sys import stdin
+      from time import sleep
+
+      pid = int(stdin.readline())
+      kill(pid, SIGSTOP)
+      print("STOPPED")
+      kill(pid, SIGCONT)
+      # For some reason the first signal will only wake up the other
+      # program but not invoke the registered signal handler. So send a
+      # second signal (after some time) here to invoke it properly. It
+      # remains unknown why a signal could be missed when sending two
+      # signals in rapid succession.
+      sleep(1)
+      kill(pid, SIGCONT)
+      print("CONTINUED")
+    """)
+
+    commands = [
+      [executable, "-c", script1],
+      [executable, "-c", script2],
+    ]
+    out, _ = pipeline(commands, stdout=b"", stderr=b"")
+    self.assertEqual(out, b"STOPPED\nCONTINUED\n")
 
 
   def testSpringNoOutput(self):
@@ -457,6 +592,34 @@ class TestExecute(TestCase):
 
       with self.assertRaisesRegex(ProcessError, regex):
         spring(commands, stderr=b"")
+
+
+  def testSpringErrorStatus(self):
+    """Verify that the reported spring execution status is correct."""
+    def doTest(spring_cmd, pipe_cmd, formatted):
+      """Execute a test for checking status codes in a spring."""
+      commands = [
+        [
+          [_TRUE],
+          spring_cmd,
+          [_TRUE],
+        ],
+        pipe_cmd,
+      ]
+
+      regex = r"%s" % escape(formatted)
+      with self.assertRaisesRegex(ProcessError, regex) as e:
+        spring(commands)
+
+      self.assertEqual(e.exception.status, 255)
+
+    fail = [executable, "-c", "exit(255)"]
+    succeed = [_TRUE]
+    formatted = formatCommands(fail)
+
+    doTest(fail, succeed, formatted)
+    doTest(succeed, fail, formatted)
+
 
 
   def testSpringWriteFileDescriptor(self):

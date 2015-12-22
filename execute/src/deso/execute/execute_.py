@@ -63,8 +63,14 @@ from os import (
   open as open_,
   pipe2,
   read,
-  waitpid,
+  waitpid as waitpid_,
   write,
+  WIFCONTINUED,
+  WIFEXITED,
+  WIFSIGNALED,
+  WIFSTOPPED,
+  WEXITSTATUS,
+  WTERMSIG,
 )
 from select import (
   PIPE_BUF,
@@ -94,6 +100,13 @@ class ProcessError(ChildProcessError):
   """
   def __init__(self, status, name, stderr=None):
     super().__init__()
+
+    # POSIX let's us have an error range of 8 bits. We do not want to
+    # enforce any policy here, so even allow 0. Although it does not
+    # make much sense to have that in an error class. Note that we allow
+    # negative values equally well, as long as they do not cause an
+    # underflow resulting in an effective return code of 0.
+    assert -256 < status and status < 256, status
 
     self._status = status
     self._name = name
@@ -131,6 +144,30 @@ class ProcessError(ChildProcessError):
   def stderr(self):
     """Retrieve the stderr output, if any, of the process that failed."""
     return self._stderr
+
+
+def _waitpid(pid):
+  """Convenience wrapper around the original waitpid invocation."""
+  # 0 and -1 trigger a different behavior in waitpid. We disallow those
+  # values.
+  assert pid > 0
+
+  while True:
+    pid_, status = waitpid_(pid, 0)
+    assert pid_ == pid
+
+    if WIFEXITED(status):
+      return WEXITSTATUS(status)
+    elif WIFSIGNALED(status):
+      # Signals are usually represented as the negated signal number.
+      return -WTERMSIG(status)
+    elif WIFSTOPPED(status) or WIFCONTINUED(status):
+      # In our current usage scenarios we can simply ignore SIGSTOP and
+      # SIGCONT by restarting the wait.
+      continue
+    else:
+      assert False
+      return 1
 
 
 def execute(*args, stdin=None, stdout=None, stderr=b""):
@@ -252,7 +289,7 @@ def formatCommands(commands):
   return s
 
 
-def _wait(pids, commands, data_err, failed=None):
+def _wait(pids, commands, data_err, status=0, failed=None):
   """Wait for all processes represented by a list of process IDs.
 
     Although it might not seem necessary to wait for any other than the
@@ -282,15 +319,18 @@ def _wait(pids, commands, data_err, failed=None):
   # already execute (and wait for) all but the last of these "internal"
   # commands.
   assert len(pids) <= len(commands)
+  # If an error status is set we also must have received the failed
+  # command.
+  assert status == 0 or len(failed) > 0
 
   for i, pid in enumerate(pids):
-    _, status = waitpid(pid, 0)
-
-    if status != 0 and not failed:
+    this_status = _waitpid(pid)
+    if this_status != 0 and status == 0:
       # Only remember the first failure here, then continue clean up.
       failed = formatCommands([commands[i]])
+      status = this_status
 
-  if failed:
+  if status != 0:
     error = data_err.decode("utf-8") if data_err else None
     raise ProcessError(status, failed, error)
 
@@ -608,6 +648,7 @@ def _spring(commands, fds):
 
   pids = []
   first = True
+  status = 0
   failed = None
   poller = None
 
@@ -620,6 +661,7 @@ def _spring(commands, fds):
   # (possibly empty) pipeline that processes the output of the spring.
   spring_cmds = commands[0]
   pipe_cmds = commands[1:]
+  pipe_len = len(pipe_cmds)
 
   # We need a pipe to connect the spring's output with the pipeline's
   # input, if there is a pipeline following the spring.
@@ -667,7 +709,7 @@ def _spring(commands, fds):
         pollData(poller)
 
       if not last:
-        _, status = waitpid(pid, 0)
+        status = _waitpid(pid)
         if status != 0:
           # One command failed. Do not start any more commands and
           # indicate failure to the caller. He may try reading data from
@@ -679,14 +721,18 @@ def _spring(commands, fds):
         # If we reached the last command in the spring we can just have
         # it run in background and wait for it to finish later on -- no
         # more serialization is required at that point.
-        pids += [pid]
+        # We insert the pid just before the pids for the pipeline. The
+        # pipeline is started early but it runs the longest (because it
+        # processes the output of the spring) and we must keep this
+        # order in the pid list.
+        pids[-pipe_len:-pipe_len] = [pid]
 
   if pipe_cmds:
     close_(fd_in_new)
     close_(fd_out_new)
 
   assert poller
-  return pids, poller, failed
+  return pids, poller, status, failed
 
 
 def spring(commands, stdout=None, stderr=b""):
@@ -704,7 +750,7 @@ def spring(commands, stdout=None, stderr=b""):
 
       # Finally execute our spring and pass in the prepared file
       # descriptors to use.
-      pids, poller, failed = _spring(commands, fds)
+      pids, poller, status, failed = _spring(commands, fds)
 
     # We started all processes and will wait for them to finish. From
     # now on we can allow any invocation of poll to block.
@@ -716,5 +762,5 @@ def spring(commands, stdout=None, stderr=b""):
 
     data_out, data_err = fds.data()
 
-  _wait(pids, commands, data_err, failed=failed)
+  _wait(pids, commands, data_err, status=status, failed=failed)
   return data_out, data_err
