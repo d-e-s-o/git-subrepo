@@ -382,21 +382,27 @@ def main(argv):
   parser = setupArgumentParser()
   namespace = parser.parse_args(argv[1:])
   VERBOSE = namespace.verbose
-
   repo = getattr(namespace, "remote-repository")
-  root = retrieveRepositoryRoot()
-  # The user-given prefix is to be treated relative to the current
-  # working directory. This directory is not necessarily equal to the
-  # current repository's root. So we have to perform some path magic in
-  # order to convert the prefix into one relative to the git
-  # repository's root. If we did nothing here git would always treat the
-  # prefix relative to the root directory which would result in
-  # unexpected behavior.
-  prefix = relpath(namespace.prefix)
-  prefix = relpath(prefix, start=root)
-  prefix = trail(prefix)
 
-  return import_(root, repo, prefix, namespace.commit, edit=namespace.edit)
+  try:
+    root = retrieveRepositoryRoot()
+    # The user-given prefix is to be treated relative to the current
+    # working directory. This directory is not necessarily equal to the
+    # current repository's root. So we have to perform some path magic in
+    # order to convert the prefix into one relative to the git
+    # repository's root. If we did nothing here git would always treat the
+    # prefix relative to the root directory which would result in
+    # unexpected behavior.
+    prefix = relpath(namespace.prefix)
+    prefix = relpath(prefix, start=root)
+    prefix = trail(prefix)
+
+    return import_(root, repo, prefix, namespace.commit, edit=namespace.edit)
+  except ProcessError as e:
+    print("%s" % e, file=stderr)
+    # A process failed executing so we mirror its return value.
+    assert e.status != 0
+    return e.status
 
 
 if __name__ == "__main__":

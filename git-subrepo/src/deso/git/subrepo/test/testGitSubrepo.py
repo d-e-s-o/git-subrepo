@@ -19,6 +19,9 @@
 
 """Various tests for the git-subrepo functionality."""
 
+from deso.cleanup import (
+  defer,
+)
 from deso.execute import (
   execute,
   findCommand,
@@ -47,8 +50,12 @@ from random import (
 from sys import (
   executable,
 )
+from tempfile import (
+  TemporaryDirectory,
+)
 from unittest import (
   main,
+  SkipTest,
   TestCase,
 )
 
@@ -336,6 +343,41 @@ class TestGitSubrepo(TestCase):
 
     doTest("./")
     doTest("r1")
+
+
+  def testInvocationOutsideOfRepository(self):
+    """Verify that the program behaves as intended if invoked outside of a git repository."""
+    def skipTestIfInGitRepo():
+      """Skip the current test if we are in a git repository."""
+      try:
+        execute(GIT, "rev-parse", "--git-dir")
+        raise SkipTest("Found a git repository above '%s'" % getcwd())
+      except ProcessError:
+        pass
+
+    cwd = getcwd()
+    # Check for the proper return message. We assume git-rev-parse
+    # failed as that is the first command that is executed. Note that
+    # the most important thing in the regular expression is the first
+    # single quote sign. The problem is that the reported message in our
+    # scenario does not begin with the git-rev-parse failure but with
+    # the Python one. However, the actual git failure is reported in
+    # single quotes.
+    regex = r"'\[Status [0-9]+\] [^ ]*git rev-parse"
+
+    with TemporaryDirectory() as dir_:
+      with defer() as d:
+        chdir(dir_)
+        d.defer(chdir, cwd)
+
+        # Although we are in a temporary directory depending on the
+        # overall file system structure we might still have a git
+        # repository somewhere above us that could be found. In such a
+        # case we want to skip the test.
+        skipTestIfInGitRepo()
+
+        with self.assertRaisesRegex(ProcessError, regex):
+          execute(executable, GIT_SUBREPO, "import", "repo", ".", "master")
 
 
 if __name__ == "__main__":
