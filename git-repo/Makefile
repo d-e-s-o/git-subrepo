@@ -19,7 +19,8 @@
 
 
 .PHONY: test
+test: ROOT := $(shell pwd)/..
 test:
-	@PYTHONPATH="$(shell pwd)/src:${PYTHONPATH}"\
+	@PYTHONPATH="$(ROOT)/cleanup/src:$(ROOT)/execute/src:$(ROOT)/git-repo/src:${PYTHONPATH}"\
 	 PYTHONDONTWRITEBYTECODE=1\
 		python -m unittest --verbose --buffer deso.git.repo.test.allTests

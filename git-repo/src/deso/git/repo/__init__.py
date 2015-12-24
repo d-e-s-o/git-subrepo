@@ -20,6 +20,8 @@
 """Initialization file of the git.repo module."""
 
 from deso.git.repo.repository import (
+  PathMixin,
+  PythonMixin,
   read,
   Repository,
   write,

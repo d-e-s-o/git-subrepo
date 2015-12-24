@@ -33,6 +33,7 @@ def allTests():
   # Explicitly load all tests by name and not using a single discovery
   # to be able to easily deselect parts.
   tests = [
+    "testMixins.py",
     "testRepository.py",
   ]
 

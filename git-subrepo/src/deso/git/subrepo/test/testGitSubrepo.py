@@ -28,6 +28,8 @@ from deso.execute import (
   ProcessError,
 )
 from deso.git.repo import (
+  PathMixin,
+  PythonMixin,
   read,
   Repository,
   write,
@@ -64,29 +66,35 @@ GIT = findCommand("git")
 GIT_SUBREPO = realpath(join(dirname(__file__), pardir, "git-subrepo.py"))
 
 
-class GitRepository(Repository):
+def _subrepo(*args):
+  """Invoke git-subrepo with the given arguments."""
+  env = {}
+  PathMixin.inheritEnv(env)
+  PythonMixin.inheritEnv(env)
+
+  execute(executable, GIT_SUBREPO, *args, env=env)
+
+
+class GitRepository(PathMixin, PythonMixin, Repository):
   """A git repository with subrepo support."""
   def __init__(self):
     """Initialize the git repository."""
     super().__init__(GIT)
 
 
-  @Repository.unsetHome
-  @Repository.autoChangeDir
   def revParse(self, *args):
     """Invoke git-rev-parse with a set of arguments."""
     # We need to remove the trailing new line symbol here.
     # Unfortunately, there is no --null option (as supported by
     # git-config) that causes a NULL terminated string to be emitted.
-    out, _ = execute(GIT, "rev-parse", *args, stdout=b"")
+    out, _ = self.git("rev-parse", *args, stdout=b"")
     return out[:-1].decode("utf-8")
 
 
-  @Repository.unsetHome
   @Repository.autoChangeDir
   def subrepo(self, *args):
     """Invoke a git-subrepo command."""
-    execute(executable, GIT_SUBREPO, *args)
+    _subrepo(*args)
 
 
 class TestGitSubrepo(TestCase):
@@ -377,7 +385,7 @@ class TestGitSubrepo(TestCase):
         skipTestIfInGitRepo()
 
         with self.assertRaisesRegex(ProcessError, regex):
-          execute(executable, GIT_SUBREPO, "import", "repo", ".", "master")
+          _subrepo("import", "repo", ".", "master")
 
 
   def testBacktraceOnError(self):

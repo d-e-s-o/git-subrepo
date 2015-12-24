@@ -19,6 +19,9 @@
 
 """Test for the git repository Python wrapper."""
 
+from deso.execute import (
+  findCommand,
+)
 from deso.git.repo import (
   read,
   Repository,
@@ -38,7 +41,7 @@ from unittest import (
 )
 
 
-GIT = "git"
+GIT = findCommand("git")
 
 
 class TestRepository(TestCase):
@@ -93,7 +96,7 @@ class TestRepository(TestCase):
 
       # We also verify here that we can invoke a git command containing
       # a dash (rev-parse in this case).
-      sha1 = foo.revParse("HEAD")
+      sha1, _ = foo.revParse("HEAD", stdout=b"")
       self.assertRegex(sha1[:-1].decode("utf-8"), "[0-9a-f]{40}")
 
 
