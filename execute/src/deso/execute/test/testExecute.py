@@ -31,6 +31,7 @@ from deso.execute.execute_ import (
   eventToString,
 )
 from os import (
+  environ,
   remove,
 )
 from os.path import (
@@ -77,19 +78,19 @@ _TR = findCommand("tr")
 _DD = findCommand("dd")
 
 
-def execute(*args, stdin=None, stdout=None, stderr=None):
+def execute(*args, env=None, stdin=None, stdout=None, stderr=None):
   """Run a program with reading from stderr disabled by default."""
-  return execute_(*args, stdin=stdin, stdout=stdout, stderr=stderr)
+  return execute_(*args, env=env, stdin=stdin, stdout=stdout, stderr=stderr)
 
 
-def pipeline(commands, stdin=None, stdout=None, stderr=None):
+def pipeline(commands, env=None, stdin=None, stdout=None, stderr=None):
   """Run a pipeline with reading from stderr disabled by default."""
-  return pipeline_(commands, stdin=stdin, stdout=stdout, stderr=stderr)
+  return pipeline_(commands, env=env, stdin=stdin, stdout=stdout, stderr=stderr)
 
 
-def spring(commands, stdout=None, stderr=None):
+def spring(commands, env=None, stdout=None, stderr=None):
   """Run a spring with reading from stderr disabled by default."""
-  return spring_(commands, stdout=stdout, stderr=stderr)
+  return spring_(commands, env=env, stdout=stdout, stderr=stderr)
 
 
 class TestExecute(TestCase):
@@ -300,6 +301,42 @@ class TestExecute(TestCase):
     # the above phrase.
     with self.assertRaisesRegex(ProcessError, regex):
       execute(_CAT, path, stderr=b"")
+
+
+  def testExecuteWithEnvironment(self):
+    """Verify that we can pass in a custom environment."""
+    def doTest(env, use_spring):
+      """Run a python script printing the current environment."""
+      script = "from os import environ; print(\"%s\" % environ)"
+      cmd = [executable, "-c", script]
+      if use_spring:
+        commands = [
+          [cmd],
+        ]
+        out, _ = spring(commands, env=env, stdout=b"")
+      else:
+        # The execute function uses a pipeline internally so we have no
+        # separate test for pipelines.
+        out, _ = execute(*cmd, env=env, stdout=b"")
+
+      return out[:-1].decode("utf-8")
+
+    for use_spring in (False, True):
+      # Test that we can pass in our own environment.
+      env = {"ENV_TEST": "foobarbaz123"}
+      expected = "environ({'ENV_TEST': 'foobarbaz123'})"
+      self.assertEqual(doTest(env, use_spring), expected)
+
+      # An empty environment should be treated as such.
+      expected = "environ({})"
+      self.assertEqual(doTest({}, use_spring), expected)
+
+      # Verify that if we supply a None environment, we will inherit this
+      # process' environment.
+      environ["FOOBAR"] = "098testXXX"
+      expected = r"'FOOBAR': '098testXXX'"
+      self.assertRegex(doTest(None, use_spring), expected)
+      del environ["FOOBAR"]
 
 
   def testPipelineThrowsForFirstFailure(self):
