@@ -396,5 +396,41 @@ class TestGitSubrepo(TestCase):
         repo.subrepo("import", "--debug", "foo", "bar/", "HEAD")
 
 
+  def testErrorOnUncommittedConflictingChanges(self):
+    """Check that we error out in case there are uncomitted conflicting changes in the tree."""
+    def doTest(prefix, stage):
+      """Perform the import test and verify that conflicting files are not overwritten."""
+      with GitRepository() as other,\
+           GitRepository() as this:
+        if prefix != ".":
+          mkdir(other.path(prefix))
+          mkdir(this.path(prefix))
+
+        write(other, "other.py", data="data")
+        other.add(other.path("other.py"))
+        other.commit()
+
+        data = "other conflicting data"
+        this.remote("add", "--fetch", "other", other.path())
+        # Add a file into "this" repository that causes a conflict with
+        # a file in "other".
+        write(this, prefix, "other.py", data=data)
+        if stage:
+          this.add(this.path(prefix, "other.py"))
+          regex = r"Your index contains uncommitted changes."
+        else:
+          regex = r"other.py: already exists in working directory"
+
+        with self.assertRaisesRegex(ProcessError, regex):
+          this.subrepo("import", "other", prefix, "master")
+
+        # The conflicting file's contents should not have been touched.
+        self.assertEqual(read(this, prefix, "other.py"), data)
+
+    for stage in (False, True):
+      doTest(".", stage)
+      doTest("some-prefix", stage)
+
+
 if __name__ == "__main__":
   main()

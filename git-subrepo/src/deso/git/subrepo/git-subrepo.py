@@ -254,6 +254,27 @@ index 000000..000000
 
 def import_(root, repo, prefix, commit, edit=False):
   """Import a remote repository at a given commit at a given prefix."""
+  def executeSafeApplySpring(apply_cmd, pipe_cmds):
+    """Create a spring comprising a pipeline of commands and running git-apply on the result."""
+    # The idea here is: it is possible that a patch created by the given
+    # pipeline of commands is empty. In such a case git-apply will fail,
+    # which is undesired. We cannot work around this issue by catching
+    # the resulting ProcessError because that could mask other errors.
+    # So the work around is to emit a patch into the pipeline that
+    # simply has no effect. To that end, we generate a temporary file
+    # name (without generating the actual file; and yes, we use a
+    # deprecated function because that *is* the correct way and
+    # deprecating it instead of educating people is simply wrong). We
+    # then tell git-apply to exclude this very file.
+    file_ = basename(mktemp(prefix="null", dir=root))
+    commands = [
+      [
+        [ECHO, retrieveDummyPatch(file_)],
+      ] + pipe_cmds,
+      apply_cmd + ["--exclude=%s" % file_],
+    ]
+    spring(commands)
+
   # If the prefix resolved to this expression then the subrepo addition
   # is to happen in the root of the repository. This case needs some
   # special treatment later on.
@@ -281,7 +302,7 @@ def import_(root, repo, prefix, commit, edit=False):
   git_diff_tree = [GIT, "diff-tree"] + args
   git_diff_index = [GIT, "diff-index"] + args
   git_diff_cache = [GIT, "diff-index", "--cached"] + args
-  git_apply = [GIT, "apply", "-p0", "--binary", "--index", "--apply"]
+  git_apply = [GIT, "apply", "-p0", "--binary", "--index"]
 
   # We need to differentiate two cases here that decide the complexity
   # of the import we want to perform. Simply put, if the import is going
@@ -297,22 +318,7 @@ def import_(root, repo, prefix, commit, edit=False):
     # state. If there is something on disk we create a patch reverting
     # those contents first and then apply the full diff as before.
 
-    # With our git-apply invocation below we have a problem: the
-    # patch resulting from the git-diff-index and git-diff-tree
-    # invocations might be empty in case the repository has no HEAD and
-    # the imported remote repository is effectively empty. Such an empty
-    # patch, however, causes git-apply to fail, which is undesired. We
-    # cannot work around this by catching the resulting ProcessError
-    # because that could mask other errors. So the work around is to
-    # emit a patch into the pipeline that simply has no effect. To that
-    # end, we generate a temporary file name (without generating the
-    # actual file; and yes, we use a deprecated function because that
-    # *is* the correct way and deprecating it instead of educating
-    # people is simply wrong). We then tell git-apply to exclude this
-    # very file.
-    file_ = basename(mktemp(prefix="null", dir=root))
-    pipe_cmds = [[ECHO, retrieveDummyPatch(file_)]]
-
+    pipe_cmds = []
     # Note that we deliberately choose to perform the weakest check
     # possible here to detect presence of the given prefix (that is, we
     # just check if prefix exists at all, not if it is a directory, if
@@ -324,14 +330,20 @@ def import_(root, repo, prefix, commit, edit=False):
       # related arguments.
       pipe_cmds += [git_diff_index + ["-R", "--no-prefix", empty_tree, prefix]]
 
+    # The patch resulting from the git-diff-index and git-diff-tree
+    # invocations might be empty in case the repository has no HEAD and
+    # the imported remote repository is effectively empty, in which case
+    # git-apply would fail. So we have to prepend a fake patch to the
+    # diff output in order to make git-apply not fail.
     pipe_cmds += [git_diff_tree + [empty_tree, remote_tree]]
-
-    commands = [
-      pipe_cmds,
-      git_apply + ["--exclude=%s" % file_],
-    ]
-    spring(commands)
+    executeSafeApplySpring(git_apply + ["--apply"], pipe_cmds)
   else:
+    # First we should check whether there are files in the working tree
+    # (cached or not) that would be overwritten. Note that the created
+    # patch might be empty here as well.
+    pipe_cmds = [git_diff_tree + [head_tree, remote_tree]]
+    executeSafeApplySpring(git_apply + ["--check"], pipe_cmds)
+
     # The case of importing a subrepo into the repository's root is
     # somewhat more complex. We do some patch arithmetic here to achieve
     # the desired outcome: first, we find the difference between the
@@ -348,7 +360,7 @@ def import_(root, repo, prefix, commit, edit=False):
         git_diff_tree + [head_tree, remote_tree],
         git_diff_tree + ["-R", empty_tree, remote_tree],
       ],
-      git_apply,
+      git_apply + ["--apply"],
     ]
     spring(commands)
 
@@ -363,7 +375,7 @@ def import_(root, repo, prefix, commit, edit=False):
         git_diff_cache + ["-R", head_tree],
         git_diff_tree + [head_tree, remote_tree],
       ],
-      git_apply,
+      git_apply + ["--apply"],
     ]
     spring(commands)
 
@@ -401,6 +413,13 @@ def main(argv):
     prefix = relpath(namespace.prefix)
     prefix = relpath(prefix, start=root)
     prefix = trail(prefix)
+
+    # If the user has cached changes we do not continue as they would be
+    # discarded.
+    if hasCachedChanges():
+      print("Cannot import: Your index contains uncommitted changes.\n"
+            "Please commit or stash them.", file=stderr)
+      return 1
 
     return import_(root, repo, prefix, namespace.commit, edit=namespace.edit)
   except ProcessError as e:
