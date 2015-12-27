@@ -37,6 +37,7 @@ from os import (
   sep,
 )
 from os.path import (
+  abspath,
   basename,
   join,
   lexists,
@@ -54,6 +55,7 @@ from tempfile import (
 GIT = findCommand("git")
 ECHO = findCommand("echo")
 VERBOSE = False
+IMPORT_MSG = "import subrepo {prefix}:{repo} at {sha1}"
 
 
 def trail(path):
@@ -252,7 +254,7 @@ index 000000..000000
 """.format(file=file_)
 
 
-def import_(root, repo, prefix, commit, edit=False):
+def import_(repo, prefix, sha1, root=None):
   """Import a remote repository at a given commit at a given prefix."""
   def executeSafeApplySpring(apply_cmd, pipe_cmds):
     """Create a spring comprising a pipeline of commands and running git-apply on the result."""
@@ -275,14 +277,17 @@ def import_(root, repo, prefix, commit, edit=False):
     ]
     spring(commands)
 
+  if root is None:
+    root = retrieveRepositoryRoot()
+
+  assert abspath(root) == root, root
+  assert trail(prefix) == prefix, prefix
+  assert resolveCommit(repo, sha1) == sha1, sha1
+
   # If the prefix resolved to this expression then the subrepo addition
   # is to happen in the root of the repository. This case needs some
   # special treatment later on.
   root_prefix = "%s%s" % (curdir, sep)
-  # We always resolve the possibly symbolic commit name into a SHA1
-  # hash. The main reason is that we want this hash to be contained in
-  # the commit message. So for consistency, we should also work with it.
-  sha1 = resolveCommit(repo, commit)
 
   args = ["--full-index", "--binary", "--no-color"]
   if prefix != root_prefix:
@@ -379,18 +384,6 @@ def import_(root, repo, prefix, commit, edit=False):
     ]
     spring(commands)
 
-  if not hasCachedChanges():
-    # Behave similarly to git commit when invoked with no changes made
-    # to the repository's state and return 1.
-    print("No changes", file=stderr)
-    return 1
-
-  options = ["--edit"] if edit else []
-  message = "import subrepo {prefix}:{repo} at {sha1}"
-  message = message.format(prefix=prefix, repo=repo, sha1=sha1)
-  execute(GIT, "commit", "--no-verify", "--message=%s" % message, *options)
-  return 0
-
 
 def main(argv):
   """The main function interprets the arguments and acts upon them."""
@@ -421,7 +414,23 @@ def main(argv):
             "Please commit or stash them.", file=stderr)
       return 1
 
-    return import_(root, repo, prefix, namespace.commit, edit=namespace.edit)
+    # We always resolve the possibly symbolic commit name into a SHA1
+    # hash. The main reason is that we want this hash to be contained in
+    # the commit message. So for consistency, we should also work with it.
+    sha1 = resolveCommit(repo, namespace.commit)
+
+    import_(repo, prefix, sha1, root=root)
+
+    if not hasCachedChanges():
+      # Behave similarly to git commit when invoked with no changes made
+      # to the repository's state and return 1.
+      print("No changes", file=stderr)
+      return 1
+
+    options = ["--edit"] if namespace.edit else []
+    message = IMPORT_MSG.format(prefix=prefix, repo=repo, sha1=sha1)
+    execute(GIT, "commit", "--no-verify", "--message=%s" % message, *options)
+    return 0
   except ProcessError as e:
     if namespace.debug:
       raise
