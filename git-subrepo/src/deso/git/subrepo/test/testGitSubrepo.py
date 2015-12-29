@@ -241,7 +241,23 @@ class TestGitSubrepo(TestCase):
       finally:
         chdir(cwd)
 
-      self.assertTrue(exists(app.path("src", "lib", "lib.h")))
+      self.assertEqual(read(app, "src", "lib", "lib.h"), read(lib, "lib.h"))
+
+      # Now perform an "update" import, i.e., one where some data
+      # already exists and we effectively just create an incremental
+      # patch on top of that.
+      write(lib, "lib.h", data="test")
+      lib.add("lib.h")
+      lib.commit()
+      app.fetch("lib")
+
+      chdir(app.path("src"))
+      try:
+        app.subrepo("import", "lib", "lib", "master")
+      finally:
+        chdir(cwd)
+
+      self.assertEqual(read(app, "src", "lib", "lib.h"), read(lib, "lib.h"))
 
 
   def testAddEqualRepos(self):

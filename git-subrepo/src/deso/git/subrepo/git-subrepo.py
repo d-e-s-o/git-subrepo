@@ -63,6 +63,11 @@ def trail(path):
   return join(path, "")
 
 
+def git(root, *args):
+  """Create a git command working in the given repository root."""
+  return [GIT, "-C", root] + list(args)
+
+
 def execute(*args, **kwargs):
   """Run a program, optionally print the full command."""
   if VERBOSE:
@@ -183,25 +188,29 @@ def setupArgumentParser():
 
 def retrieveRepositoryRoot():
   """Retrieve the root directory of the current git repository."""
+  # This function does not invoke git with the "-C" parameter because it
+  # is the one that retrieves the argument to use with it.
   out, _ = execute(GIT, "rev-parse", "--show-toplevel", stdout=b"")
   return out[:-1].decode("utf-8")
 
 
-def retrieveEmptyTree():
+def retrieveEmptyTree(root):
   """Retrieve the SHA1 sum of the empty tree."""
   # Note that the SHA1 sum of the empty tree is constant and *should*
   # not change. It is '4b825dc642cb6eb9a060e54bf8d69288fbee4904'.
   # However, to be safe here (and to document how to derive it), we
   # query it on the fly.
-  out, _ = execute(GIT, "hash-object", "-t", "tree", devnull, stdout=b"")
+  cmd = git(root, "hash-object", "-t", "tree", devnull)
+  out, _ = execute(*cmd, stdout=b"")
   return out[:-1].decode("utf-8")
 
 
-def resolveCommit(repo, commit):
+def resolveCommit(root, repo, commit):
   """Resolve a potentially symbolic commit name to a SHA1 hash."""
   try:
     to_import = "refs/remotes/%s/%s" % (repo, commit)
-    out, _ = execute(GIT, "rev-parse", to_import, stdout=b"")
+    cmd = git(root, "rev-parse", to_import)
+    out, _ = execute(*cmd, stdout=b"")
     return out.decode("utf-8")[:-1]
   except ProcessError:
     # If we already got supplied a SHA1 hash the above command will fail
@@ -210,7 +219,8 @@ def resolveCommit(repo, commit):
     # dealing with the SHA1 hash (and not something else we do not know
     # how to handle correctly) and ask git to parse it again, which
     # should just return the very same hash.
-    out, _ = execute(GIT, "rev-parse", "%s" % commit, stdout=b"")
+    cmd = git(root, "rev-parse", "%s" % commit)
+    out, _ = execute(*cmd, stdout=b"")
     out = out.decode("utf-8")[:-1]
     if out != commit:
       # Very likely we will not hit this path because git-rev-parse
@@ -221,16 +231,17 @@ def resolveCommit(repo, commit):
     return commit
 
 
-def hasHead():
+def hasHead(root):
   """Check if the repository has a HEAD."""
   try:
-    execute(GIT, "rev-parse", "HEAD", stderr=None)
+    cmd = git(root, "rev-parse", "HEAD")
+    execute(*cmd, stderr=None)
     return True
   except ProcessError:
     return False
 
 
-def hasCachedChanges():
+def hasCachedChanges(root):
   """Check if the repository has changes."""
   try:
     # When using the --exit-code option the command will return 1 (i.e.,
@@ -239,7 +250,8 @@ def hasCachedChanges():
     # Note that we cannot safely use git-diff-index or git-diff-tree
     # here because we cannot guarantee that a HEAD exists (and those
     # commands require some form of tree-ish or commit to be provided).
-    execute(GIT, "diff", "--cached", "--no-patch", "--exit-code", "--quiet")
+    cmd = git(root, "diff", "--cached", "--no-patch", "--exit-code", "--quiet")
+    execute(*cmd)
     return False
   except ProcessError:
     return True
@@ -282,7 +294,7 @@ def import_(repo, prefix, sha1, root=None):
 
   assert abspath(root) == root, root
   assert trail(prefix) == prefix, prefix
-  assert resolveCommit(repo, sha1) == sha1, sha1
+  assert resolveCommit(root, repo, sha1) == sha1, sha1
 
   # If the prefix resolved to this expression then the subrepo addition
   # is to happen in the root of the repository. This case needs some
@@ -301,13 +313,13 @@ def import_(repo, prefix, sha1, root=None):
     args += ["--no-prefix"]
 
   head_tree = "HEAD^{tree}"
-  empty_tree = retrieveEmptyTree()
+  empty_tree = retrieveEmptyTree(root)
   remote_tree = "%s^{tree}" % sha1
 
-  git_diff_tree = [GIT, "diff-tree"] + args
-  git_diff_index = [GIT, "diff-index"] + args
-  git_diff_cache = [GIT, "diff-index", "--cached"] + args
-  git_apply = [GIT, "apply", "-p0", "--binary", "--index"]
+  git_diff_tree = git(root, "diff-tree") + args
+  git_diff_index = git(root, "diff-index") + args
+  git_diff_cache = git(root, "diff-index", "--cached") + args
+  git_apply = git(root, "apply", "-p0", "--binary", "--index")
 
   # We need to differentiate two cases here that decide the complexity
   # of the import we want to perform. Simply put, if the import is going
@@ -316,7 +328,7 @@ def import_(repo, prefix, sha1, root=None):
   # contents of this prefix directory. As a special case, this is also
   # the path we can take if the repository contains no commits yet
   # (i.e., if there is no HEAD commit).
-  if prefix != root_prefix or not hasHead():
+  if prefix != root_prefix or not hasHead(root):
     # Adding a subrepo into its own directory (specified by 'prefix')
     # works as follow: in case there is nothing on disk for the given
     # prefix we simply pull in the changes making up the desired subrepo
@@ -328,7 +340,7 @@ def import_(repo, prefix, sha1, root=None):
     # possible here to detect presence of the given prefix (that is, we
     # just check if prefix exists at all, not if it is a directory, if
     # we have write access etc.). We let git handle the rest.
-    if lexists(prefix):
+    if lexists(join(root, prefix)):
       # This git-diff-index invocation is slightly different. Since we
       # diff against an on-disk path, that will already act as a prefix.
       # So we pass in --no-prefix here to void any previous prefix
@@ -409,7 +421,7 @@ def main(argv):
 
     # If the user has cached changes we do not continue as they would be
     # discarded.
-    if hasCachedChanges():
+    if hasCachedChanges(root):
       print("Cannot import: Your index contains uncommitted changes.\n"
             "Please commit or stash them.", file=stderr)
       return 1
@@ -417,11 +429,11 @@ def main(argv):
     # We always resolve the possibly symbolic commit name into a SHA1
     # hash. The main reason is that we want this hash to be contained in
     # the commit message. So for consistency, we should also work with it.
-    sha1 = resolveCommit(repo, namespace.commit)
+    sha1 = resolveCommit(root, repo, namespace.commit)
 
     import_(repo, prefix, sha1, root=root)
 
-    if not hasCachedChanges():
+    if not hasCachedChanges(root):
       # Behave similarly to git commit when invoked with no changes made
       # to the repository's state and return 1.
       print("No changes", file=stderr)
@@ -429,7 +441,8 @@ def main(argv):
 
     options = ["--edit"] if namespace.edit else []
     message = IMPORT_MSG.format(prefix=prefix, repo=repo, sha1=sha1)
-    execute(GIT, "commit", "--no-verify", "--message=%s" % message, *options)
+    command = git(root, "commit", "--no-verify", "--message=%s" % message, *options)
+    execute(*command)
     return 0
   except ProcessError as e:
     if namespace.debug:
