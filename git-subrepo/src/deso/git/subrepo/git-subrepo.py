@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 #/***************************************************************************
-# *   Copyright (C) 2015 Daniel Mueller (deso@posteo.net)                   *
+# *   Copyright (C) 2015-2016 Daniel Mueller (deso@posteo.net)              *
 # *                                                                         *
 # *   This program is free software: you can redistribute it and/or modify  *
 # *   it under the terms of the GNU General Public License as published by  *
@@ -133,6 +133,12 @@ def addOptionalArgs(parser):
     help="Open up an editor to allow for editing the commit message.",
   )
   parser.add_argument(
+    "-f", "--force", action="store_true", default=False, dest="force",
+    help="Force import of a subrepo at a given state even if the commit "
+         "representing the state was not found to belong to the remote "
+         "repository from which to import.",
+  )
+  parser.add_argument(
     "-v", "--verbose", action="store_true", default=False, dest="verbose",
     help="Be more verbose about what is being done by displaying the git "
          "commands performed.",
@@ -229,6 +235,33 @@ def resolveCommit(root, repo, commit):
       raise RuntimeError("Commit name '%s' was not understood." % commit)
 
     return commit
+
+
+def belongsToRepository(root, repo, sha1):
+  """Check whether a given commit belongs to a remote repository."""
+  def countRemoteCommits(*args):
+    """Count the number of reachable commits in a remote repository."""
+    cmd = git(root, "rev-list", "--count", "--remotes=%s" % repo) + list(args)
+    out, _ = execute(*cmd, stdout=b"")
+    return int(out[:-1].decode("utf-8"))
+
+  # It is tougher than anticipated to simply find out whether a given
+  # commit belongs to a given remote repository or not. The approach
+  # chosen here is to count the number of reachable commits in a remote
+  # repository with and without the given commit. If there is a
+  # difference in commit count then we deduce that the commit is indeed
+  # part of this repository. A potentially simpler approach is to do a
+  # git-rev-list showing all commits and then "grep" for the commit of
+  # interest. The problem with this approach is that either we need to
+  # read a potentially huge list of commits into a Python string or we
+  # have a dependency to the 'grep' program -- neither of which is
+  # deemed acceptable.
+  including = countRemoteCommits()
+  excluding = countRemoteCommits("^%s" % sha1)
+  # We excluded a single commit but it might be the parent of others
+  # that now are also not listed. So every difference greater zero
+  # indicates that the commit is indeed part of the repository.
+  return including - excluding > 0
 
 
 def hasHead(root):
@@ -430,6 +463,12 @@ def main(argv):
     # hash. The main reason is that we want this hash to be contained in
     # the commit message. So for consistency, we should also work with it.
     sha1 = resolveCommit(root, repo, namespace.commit)
+
+    if not namespace.force and not belongsToRepository(root, repo, sha1):
+      msg = "{commit} is not a reachable commit in remote repository {repo}."
+      msg = msg.format(commit=namespace.commit, repo=repo)
+      print(msg, file=stderr)
+      return 1
 
     import_(repo, prefix, sha1, root=root)
 

@@ -1,13 +1,13 @@
 '\" t
 .\"     Title: git-subrepo
 .\"    Author: [FIXME: author] [see http://docbook.sf.net/el/author]
-.\" Generator: DocBook XSL Stylesheets v1.78.0 <http://docbook.sf.net/>
-.\"      Date: 12/21/2015
+.\" Generator: DocBook XSL Stylesheets v1.79.0 <http://docbook.sf.net/>
+.\"      Date: 01/02/2016
 .\"    Manual: Git Manual
 .\"    Source: Git
 .\"  Language: English
 .\"
-.TH "GIT\-SUBREPO" "1" "12/21/2015" "Git" "Git Manual"
+.TH "GIT\-SUBREPO" "1" "01/02/2016" "Git" "Git Manual"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -32,7 +32,7 @@ git-subrepo \- Import a subrepo
 .SH "SYNOPSIS"
 .sp
 .nf
-\fIgit subrepo\fR import [\-\-debug] [\-\-edit] [\-\-verbose] <remote\-repository> <prefix> <commit>
+\fIgit subrepo\fR import [\-\-debug] [\-\-edit] [\-\-force] [\-\-verbose] <remote\-repository> <prefix> <commit>
 .fi
 .sp
 .SH "DESCRIPTION"
@@ -75,6 +75,11 @@ In the usual case git\-subrepo prints an error in case one of the executed git c
 \-e, \-\-edit
 .RS 4
 By default git\-subrepo creates a commit message containing only the essential information for a particular commit\&. When this option is set the committer gets the chance to further edit the message\&.
+.RE
+.PP
+\-f, \-\-force
+.RS 4
+As a sanity check, git\-subrepo verifies that a commit at which to import a given remote repository in the form of a subrepo does indeed belong to the remote repository specified\&. By using this option this check can be omitted and an import be forced\&.
 .RE
 .PP
 \-v, \-\-verbose

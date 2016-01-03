@@ -748,7 +748,7 @@ git-subrepo(1) Manual Page
 <h2 id="_synopsis">SYNOPSIS</h2>
 <div class="sectionbody">
 <div class="verseblock">
-<pre class="content"><em>git subrepo</em> import [--debug] [--edit] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;</pre>
+<pre class="content"><em>git subrepo</em> import [--debug] [--edit] [--force] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;</pre>
 <div class="attribution">
 </div></div>
 </div>
@@ -850,6 +850,20 @@ import
   By default git-subrepo creates a commit message containing only the
   essential information for a particular commit. When this option is set
   the committer gets the chance to further edit the message.
+</p>
+</dd>
+<dt class="hdlist1">
+-f
+</dt>
+<dt class="hdlist1">
+--force
+</dt>
+<dd>
+<p>
+  As a sanity check, git-subrepo verifies that a commit at which to
+  import a given remote repository in the form of a subrepo does indeed
+  belong to the remote repository specified. By using this option this
+  check can be omitted and an import be forced.
 </p>
 </dd>
 <dt class="hdlist1">
@@ -1046,7 +1060,7 @@ the previous state.</p></div>
 <div id="footnotes"><hr /></div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2015-12-21 07:52:00 PST
+Last updated 2016-01-02 22:35:09 PST
 </div>
 </div>
 </body>

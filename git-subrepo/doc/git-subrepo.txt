@@ -9,7 +9,7 @@ git-subrepo - Import a subrepo
 SYNOPSIS
 --------
 [verse]
-'git subrepo' import [--debug] [--edit] [--verbose] <remote-repository> <prefix> <commit>
+'git subrepo' import [--debug] [--edit] [--force] [--verbose] <remote-repository> <prefix> <commit>
 
 
 DESCRIPTION
@@ -69,6 +69,13 @@ OPTIONS
   By default git-subrepo creates a commit message containing only the
   essential information for a particular commit. When this option is set
   the committer gets the chance to further edit the message.
+
+-f::
+--force::
+  As a sanity check, git-subrepo verifies that a commit at which to
+  import a given remote repository in the form of a subrepo does indeed
+  belong to the remote repository specified. By using this option this
+  check can be omitted and an import be forced.
 
 -v::
 --verbose::

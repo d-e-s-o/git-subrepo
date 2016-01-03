@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 #/***************************************************************************
-# *   Copyright (C) 2015 Daniel Mueller (deso@posteo.net)                   *
+# *   Copyright (C) 2015-2016 Daniel Mueller (deso@posteo.net)              *
 # *                                                                         *
 # *   This program is free software: you can redistribute it and/or modify  *
 # *   it under the terms of the GNU General Public License as published by  *
@@ -446,6 +446,68 @@ class TestGitSubrepo(TestCase):
     for stage in (False, True):
       doTest(".", stage)
       doTest("some-prefix", stage)
+
+
+  def testCommitOwnershipVerification(self):
+    """Check that commits not belonging to a given remote repository are flagged."""
+    def addCommits(repo):
+      """Create two commits in the given repository."""
+      # Note that we need some variability in the content committed
+      # otherwise the created SHA1 sums will be the same even between
+      # different repositories (!).
+      write(repo, "file1.txt", data="%s" % repr(repo))
+      repo.add("file1.txt")
+      repo.commit()
+      sha1 = repo.revParse("HEAD")
+
+      write(repo, "file2.txt", data="%s" % repr(repo))
+      repo.add("file2.txt")
+      repo.commit()
+      sha2 = repo.revParse("HEAD")
+      return [sha1, sha2]
+
+    with GitRepository() as lib1,\
+         GitRepository() as lib2,\
+         GitRepository() as app:
+      lib1_commits = addCommits(lib1)
+      lib2_commits = addCommits(lib2)
+      app_commits = addCommits(app)
+
+      lib2.remote("add", "--fetch", "lib1", lib1.path())
+
+      app.remote("add", "--fetch", "lib1", lib1.path())
+      app.remote("add", "--fetch", "lib2", lib2.path())
+
+      regex = r"not a reachable commit"
+
+      # Check that various variations of commit <-> remote repository
+      # mismatches cause an error.
+      with self.assertRaisesRegex(ProcessError, regex):
+        lib2.subrepo("import", "lib1", ".", lib2_commits[1])
+
+      with self.assertRaisesRegex(ProcessError, regex):
+        app.subrepo("import", "lib1", ".", lib2_commits[0])
+
+      with self.assertRaisesRegex(ProcessError, regex):
+        app.subrepo("import", "lib2", ".", lib1_commits[1])
+
+      with self.assertRaisesRegex(ProcessError, regex):
+        app.subrepo("import", "lib2", ".", app_commits[1])
+
+      # Now override the check. The imports must succeed.
+      app.subrepo("import", "--force", "lib2", "test1", lib1_commits[0])
+      self.assertTrue(exists(app.path("test1", "file1.txt")))
+      self.assertFalse(exists(app.path("test1", "file2.txt")))
+
+      app.subrepo("import", "--force", "lib2", "test1", lib1_commits[1])
+      self.assertTrue(exists(app.path("test1", "file1.txt")))
+      self.assertTrue(exists(app.path("test1", "file2.txt")))
+
+      app.subrepo("import", "--force", "lib1", "test2", lib2_commits[0])
+      self.assertTrue(exists(app.path("test1", "file1.txt")))
+      self.assertTrue(exists(app.path("test1", "file2.txt")))
+      self.assertTrue(exists(app.path("test2", "file1.txt")))
+      self.assertFalse(exists(app.path("test2", "file2.txt")))
 
 
 if __name__ == "__main__":
