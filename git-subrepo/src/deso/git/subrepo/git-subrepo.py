@@ -27,7 +27,6 @@ from deso.execute import (
   execute as execute_,
   findCommand,
   formatCommands,
-  pipeline as pipeline_,
   ProcessError,
   spring as spring_,
 )
@@ -43,6 +42,9 @@ from os.path import (
   lexists,
   relpath,
 )
+from re import (
+  compile as compileRe,
+)
 from sys import (
   argv as sysargv,
   stderr,
@@ -56,6 +58,19 @@ GIT = findCommand("git")
 ECHO = findCommand("echo")
 VERBOSE = False
 IMPORT_MSG = "import subrepo {prefix}:{repo} at {sha1}"
+# A meant-to-be regular expression matching no whitespaces.
+NO_WS_R = "[^ \t]+"
+# We want to filter out all tree objects (i.e., git's version of a
+# directory) and blobs (files) from a given state.
+TREE_R = "(?:tree|blob)"
+# Our string matching a file imposes no restrictions on characters in
+# its name/path.
+FILE_R = ".+"
+# As per git-ls-tree(1) each line has the following format:
+# <mode> SP <type> SP <object> TAB <file>
+LS_TREE = "{nows} {type} {nows}\t({file})$"
+LS_TREE_R = LS_TREE.format(nows=NO_WS_R, type=TREE_R, file=FILE_R)
+LS_TREE_RE = compileRe(LS_TREE_R)
 
 
 def trail(path):
@@ -74,14 +89,6 @@ def execute(*args, **kwargs):
     print(formatCommands(list(args)))
 
   return execute_(*args, **kwargs)
-
-
-def pipeline(commands, *args, **kwargs):
-  """Run a pipeline, optionally print the full command."""
-  if VERBOSE:
-    print(formatCommands(commands))
-
-  return pipeline_(commands, *args, **kwargs)
 
 
 def spring(commands, *args, **kwargs):
@@ -299,6 +306,22 @@ index 000000..000000
 """.format(file=file_)
 
 
+def readCommitFiles(root, sha1):
+  """Given a commit, retrieve the top-level file objects contained in the state it represents."""
+  cmd = git(root, "ls-tree", "%s^{tree}" % sha1)
+  out, _ = execute(*cmd, stdout=b"")
+  out = out.decode("utf-8")
+  files = set()
+
+  for line in out.splitlines():
+    match = LS_TREE_RE.match(line)
+    if match is not None:
+      file_, = match.groups()
+      files.add(file_)
+
+  return files
+
+
 def import_(repo, prefix, sha1, root=None):
   """Import a remote repository at a given commit at a given prefix."""
   def executeSafeApplySpring(apply_cmd, pipe_cmds):
@@ -321,6 +344,19 @@ def import_(repo, prefix, sha1, root=None):
       apply_cmd + ["--exclude=%s" % file_],
     ]
     spring(commands)
+
+  def diffAwayFile(file_):
+    """If a file object exists, create a git command for creating a patch to remove it."""
+    # Note that we deliberately choose to perform the weakest check
+    # possible here to detect presence of the given file/directory (that
+    # is, we just check if it exists at all, not if we have write access
+    # etc.). We let git handle the rest.
+    if lexists(join(root, file_)):
+      # Since we diff against an on-disk path, that will already act as
+      # a prefix. So we pass in --no-prefix here.
+      return [git_diff_index + ["-R", "--no-prefix", empty_tree, file_]]
+    else:
+      return []
 
   if root is None:
     root = retrieveRepositoryRoot()
@@ -345,89 +381,34 @@ def import_(repo, prefix, sha1, root=None):
     # supply -p0 to the apply command.
     args += ["--no-prefix"]
 
-  head_tree = "HEAD^{tree}"
+  pipe_cmds = []
   empty_tree = retrieveEmptyTree(root)
   remote_tree = "%s^{tree}" % sha1
 
   git_diff_tree = git(root, "diff-tree") + args
   git_diff_index = git(root, "diff-index") + args
-  git_diff_cache = git(root, "diff-index", "--cached") + args
-  git_apply = git(root, "apply", "-p0", "--binary", "--index")
+  git_apply = git(root, "apply", "-p0", "--binary", "--index", "--apply")
 
   # We need to differentiate two cases here that decide the complexity
   # of the import we want to perform. Simply put, if the import is going
   # to happen into a true prefix (that is, not into the repository's
   # root), things get simpler because we only have to consider the
-  # contents of this prefix directory. As a special case, this is also
-  # the path we can take if the repository contains no commits yet
-  # (i.e., if there is no HEAD commit).
-  if prefix != root_prefix or not hasHead(root):
-    # Adding a subrepo into its own directory (specified by 'prefix')
-    # works as follow: in case there is nothing on disk for the given
-    # prefix we simply pull in the changes making up the desired subrepo
-    # state. If there is something on disk we create a patch reverting
-    # those contents first and then apply the full diff as before.
-
-    pipe_cmds = []
-    # Note that we deliberately choose to perform the weakest check
-    # possible here to detect presence of the given prefix (that is, we
-    # just check if prefix exists at all, not if it is a directory, if
-    # we have write access etc.). We let git handle the rest.
-    if lexists(join(root, prefix)):
-      # This git-diff-index invocation is slightly different. Since we
-      # diff against an on-disk path, that will already act as a prefix.
-      # So we pass in --no-prefix here to void any previous prefix
-      # related arguments.
-      pipe_cmds += [git_diff_index + ["-R", "--no-prefix", empty_tree, prefix]]
-
-    # The patch resulting from the git-diff-index and git-diff-tree
-    # invocations might be empty in case the repository has no HEAD and
-    # the imported remote repository is effectively empty, in which case
-    # git-apply would fail. So we have to prepend a fake patch to the
-    # diff output in order to make git-apply not fail.
-    pipe_cmds += [git_diff_tree + [empty_tree, remote_tree]]
-    executeSafeApplySpring(git_apply + ["--apply"], pipe_cmds)
+  # contents of this prefix directory. If we import into the root
+  # directory we have to provide a pristine environment first, mainly to
+  # make sure we do not miss removing any stale files (from renames in
+  # between imports, for example), which could happen if we only applied
+  # the changes to the desired state on top.
+  if prefix != root_prefix:
+    pipe_cmds += diffAwayFile(prefix)
   else:
-    # First we should check whether there are files in the working tree
-    # (cached or not) that would be overwritten. Note that the created
-    # patch might be empty here as well.
-    pipe_cmds = [git_diff_tree + [head_tree, remote_tree]]
-    executeSafeApplySpring(git_apply + ["--check"], pipe_cmds)
+    files = readCommitFiles(root, sha1)
+    for file_ in files:
+      pipe_cmds += diffAwayFile(file_)
 
-    # The case of importing a subrepo into the repository's root is
-    # somewhat more complex. We do some patch arithmetic here to achieve
-    # the desired outcome: first, we find the difference between the
-    # HEAD (that is, the entire content of the repository at the
-    # current state) and the desired state of the remote repository.
-    # This patch will revert *everything* in the repository except for
-    # the remote repository bits (that might already exist). Next, we
-    # additionally revert the entire subrepo state as it exists
-    # currently. What we have now are cached changes that we need to
-    # revert back once we updated the state of the subrepo in order to
-    # not change any other unrelated parts of the repository.
-    commands = [
-      [
-        git_diff_tree + [head_tree, remote_tree],
-        git_diff_tree + ["-R", empty_tree, remote_tree],
-      ],
-      git_apply + ["--apply"],
-    ]
-    spring(commands)
-
-    # So the next step is to revert the currently cached changes and
-    # then apply the difference of our HEAD against the desired state of
-    # the remote repository on top. The result of this operation is that
-    # we effectively imported the changes required to get the subrepo to
-    # the desired state without touching any files that do not "belong"
-    # to this subrepo.
-    commands = [
-      [
-        git_diff_cache + ["-R", head_tree],
-        git_diff_tree + [head_tree, remote_tree],
-      ],
-      git_apply + ["--apply"],
-    ]
-    spring(commands)
+  # Last but not least we need a patch that adds the desired bits of the
+  # remote repository to this one.
+  pipe_cmds += [git_diff_tree + [empty_tree, remote_tree]]
+  executeSafeApplySpring(git_apply, pipe_cmds)
 
 
 def main(argv):

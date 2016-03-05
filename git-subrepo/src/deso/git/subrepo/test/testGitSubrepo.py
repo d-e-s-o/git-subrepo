@@ -510,5 +510,138 @@ class TestGitSubrepo(TestCase):
       self.assertFalse(exists(app.path("test2", "file2.txt")))
 
 
+  def testImportRenamedFiles(self):
+    """Verify that importing works properly in the face of file renames."""
+    def doTest(prefix):
+      """Perform the import test."""
+      with GitRepository() as lib,\
+           GitRepository() as app:
+        mkdir(lib.path("lib"))
+        file1 = join("lib", "test1.h")
+        file2 = join("lib", "test.h")
+
+        write(lib, file1, data="inline int test() { return 1337; }")
+        lib.add(file1)
+        lib.commit()
+
+        app.remote("add", "--fetch", "lib", lib.path())
+        app.subrepo("import", "lib", prefix, "master")
+        self.assertTrue(exists(app.path(prefix, file1)))
+
+        # Rename the header file.
+        lib.mv(file1, file2)
+        lib.commit()
+
+        # Fetch new repository state and update.
+        app.fetch("lib")
+        app.subrepo("import", "lib", prefix, "master")
+
+        self.assertTrue(exists(app.path(prefix, file2)))
+        self.assertFalse(exists(app.path(prefix, file1)))
+
+    doTest(".")
+    doTest("prefix")
+    doTest(join("dir1", "dir2"))
+
+
+  def testIntermixedSubrepoUpdates(self):
+    """Verify that intermixed subrepo updates are handled correctly."""
+    def doTest(prefix):
+      """Perform the import test."""
+      with GitRepository() as lib1,\
+           GitRepository() as lib2,\
+           GitRepository() as app:
+        write(lib1, "test.py", data="# state1")
+        lib1.add("test.py")
+        lib1.commit()
+
+        app.remote("add", "--fetch", "lib1", lib1.path())
+        app.subrepo("import", "lib1", prefix, "master")
+
+        # Advance 'lib1' to state 2.
+        write(lib1, "test.py", data="# state2")
+        lib1.add("test.py")
+        lib1.commit()
+
+        # 'lib2' contains 'lib1' as a subrepo in state 2.
+        lib2.remote("add", "--fetch", "lib1", lib1.path())
+        lib2.subrepo("import", "lib1", prefix, "master")
+
+        # 'app' contains 'lib2' as well. This import will implicitly
+        # update 'lib1' to state 2.
+        app.remote("add", "--fetch", "lib2", lib2.path())
+        app.subrepo("import", "lib2", ".", "master")
+
+        self.assertEqual(read(app, prefix, "test.py"), read(lib1, "test.py"))
+
+        # Advance 'lib1' to state 3.
+        write(lib1, "test.py", data="# state3")
+        lib1.add("test.py")
+        lib1.commit()
+
+        app.fetch("lib1")
+        app.subrepo("import", "lib1", prefix, "master")
+
+        self.assertEqual(read(app, prefix, "test.py"), read(lib1, "test.py"))
+
+    doTest(".")
+    doTest("test")
+
+
+  def testIndirectImport(self):
+    """Verify that indirect imports (subrepos of subrepos) work properly."""
+    with GitRepository() as lib1,\
+         GitRepository() as lib2,\
+         GitRepository() as appx:
+      mkdir(lib1.path("lib1"))
+      mkdir(lib1.path("lib1", "include"))
+      write(lib1, "lib1", "include", "lib1.hpp", data="int test1() { return 42; }")
+      lib1.add(lib1.path("lib1", "include", "lib1.hpp"))
+      lib1.commit()
+
+      mkdir(lib2.path("lib2"))
+      mkdir(lib2.path("lib2", "include"))
+      write(lib2, "lib2", "include", "lib2.hpp", data="int test2() { return 1337; }")
+      lib2.add(lib2.path("lib2", "include", "lib2.hpp"))
+      lib2.commit()
+
+      # Add 'lib1' as a subrepo to 'lib2'. 'lib1' is never added to
+      # 'appx' directly but it should get pulled in once 'lib2' is
+      # imported.
+      lib2.remote("add", "--fetch", "lib1", lib1.path())
+      lib2.subrepo("import", "lib1", ".", "master")
+
+      appx.remote("add", "--fetch", "lib2", lib2.path())
+      appx.subrepo("import", "lib2", ".", "master")
+
+      mkdir(appx.path("appx"))
+      mkdir(appx.path("appx", "src"))
+      write(appx, "appx", "src", "appx.cpp", data="int main() { return 0; }")
+      appx.add(appx.path("appx", "src", "appx.cpp"))
+      appx.commit()
+
+      self.assertEqual(read(appx, "lib1", "include", "lib1.hpp"),
+                       read(lib1, "lib1", "include", "lib1.hpp"))
+      self.assertEqual(read(appx, "lib2", "include", "lib2.hpp"),
+                       read(lib2, "lib2", "include", "lib2.hpp"))
+      self.assertTrue(exists(appx.path("appx", "src", "appx.cpp")))
+
+      write(lib1, "lib1", "include", "lib1_2.hpp", data="// test")
+      lib1.add(lib1.path("lib1", "include", "lib1_2.hpp"))
+      lib1.commit()
+
+      lib2.fetch("lib1")
+      lib2.subrepo("import", "lib1", ".", "master")
+
+      appx.fetch("lib2")
+      appx.subrepo("import", "lib2", ".", "master")
+
+      self.assertEqual(read(appx, "lib1", "include", "lib1.hpp"),
+                       read(lib1, "lib1", "include", "lib1.hpp"))
+      self.assertEqual(read(appx, "lib2", "include", "lib2.hpp"),
+                       read(lib2, "lib2", "include", "lib2.hpp"))
+      self.assertTrue(exists(appx.path("appx", "src", "appx.cpp")))
+
+
 if __name__ == "__main__":
   main()
