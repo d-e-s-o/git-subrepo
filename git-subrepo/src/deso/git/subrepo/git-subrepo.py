@@ -44,6 +44,8 @@ from os.path import (
 )
 from re import (
   compile as compileRe,
+  escape,
+  search,
 )
 from sys import (
   argv as sysargv,
@@ -66,6 +68,9 @@ TREE_R = "(?:tree|blob)"
 # Our string matching a file imposes no restrictions on characters in
 # its name/path.
 FILE_R = ".+"
+# A regular expression matching a SHA1 hash. A SHA1 checksum is
+# comprised of 40 hexadecimal characters.
+SHA1_R = "[a-z0-9]{40}"
 # As per git-ls-tree(1) each line has the following format:
 # <mode> SP <type> SP <object> TAB <file>
 LS_TREE = "{nows} {type} {nows}\t({file})$"
@@ -271,14 +276,19 @@ def belongsToRepository(root, repo, sha1):
   return including - excluding > 0
 
 
-def hasHead(root):
-  """Check if the repository has a HEAD."""
+def isValidCommit(root, commit):
+  """Check whether a given SHA1 hash references a valid commit."""
   try:
-    cmd = git(root, "rev-parse", "HEAD")
+    cmd = git(root, "rev-parse", "--quiet", "--verify", "%s^{commit}" % commit)
     execute(*cmd, stderr=None)
     return True
   except ProcessError:
     return False
+
+
+def hasHead(root):
+  """Check if the repository has a HEAD."""
+  return isValidCommit(root, "HEAD")
 
 
 def hasCachedChanges(root):
@@ -320,6 +330,52 @@ def readCommitFiles(root, sha1):
       files.add(file_)
 
   return files
+
+
+def retrieveProperty(root, commit, format_):
+  """Retrieve a property (represented by 'format_') of the given commit."""
+  cmd = git(root, "show", "--no-patch", "--format=format:%%%s" % format_, commit)
+  out, _ = execute(*cmd, stdout=b"")
+  return out.decode("utf-8")
+
+
+def retrieveMessage(root, commit):
+  """Retrieve the message (description) of the given commit."""
+  # %B in a git format string represents the raw description, containing
+  # the subject line and the description body.
+  return retrieveProperty(root, commit, "B")
+
+
+def importMessage(repo, prefix, sha1):
+  """Retrieve an import message for a subrepo import."""
+  return IMPORT_MSG.format(prefix=prefix, repo=repo, sha1=sha1)
+
+
+def searchLastImportedCommit(root, commit, repo, prefix):
+  """Find the last subrepo import commit for a given remote repository."""
+  pattern = importMessage(escape(repo), escape(prefix), "(%s)" % SHA1_R)
+
+  # We search the history (starting with the given commit) for commits
+  # that contain a subrepo import. More precisely, for those that import
+  # the given repository at the given prefix. The first one matching
+  # (i.e., the most recent one), if any, is used.
+  # Note that we use extended regular expressions here in the hope that
+  # they will adhere to the same matching rules as the Python ones so
+  # that we can use the same pattern.
+  cmd = git(root, "rev-list", "--max-count=1", "--extended-regexp", "--grep=^%s$" % pattern, commit)
+  out, _ = execute(*cmd, stdout=b"")
+  import_commit = out.decode("utf-8")[:-1]
+  if import_commit == "":
+    return None
+
+  # If we found such an import commit we need to retrieve the SHA1
+  # representing the state at which the remote repository was imported.
+  message = retrieveMessage(root, import_commit)
+  match = search(pattern, message)
+  assert match is not None, (message, pattern)
+
+  imported_commit, = match.groups()
+  return imported_commit
 
 
 def import_(repo, prefix, sha1, root=None):
@@ -402,6 +458,26 @@ def import_(repo, prefix, sha1, root=None):
     pipe_cmds += diffAwayFile(prefix)
   else:
     files = readCommitFiles(root, sha1)
+
+    # If we can find a subrepo import commit for the same repository at
+    # the same prefix then we can not only revert the files/directories
+    # created by the new import commit but also by this previous one.
+    # This logic properly handles file/directory file deletions and
+    # renames between imports in the general case.
+    # It is possible for a subrepo import to happen indirectly as part
+    # of another import. Although those cases can be detected, it is
+    # impossible to handle them correctly in a general manner as we
+    # simply may not be able to access the commit data (in order to see
+    # which files/directories are contained in the state it represents).
+    if hasHead(root):
+      base_sha1 = searchLastImportedCommit(root, "HEAD", repo, prefix)
+      if base_sha1 is not None:
+        if isValidCommit(root, base_sha1):
+          # Note that the files we find are added to a set, meaning that
+          # duplicates (which are very likely to occur) are simply
+          # discarded.
+          files |= readCommitFiles(root, base_sha1)
+
     for file_ in files:
       pipe_cmds += diffAwayFile(file_)
 

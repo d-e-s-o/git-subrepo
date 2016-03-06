@@ -512,13 +512,17 @@ class TestGitSubrepo(TestCase):
 
   def testImportRenamedFiles(self):
     """Verify that importing works properly in the face of file renames."""
-    def doTest(prefix):
+    def doTest(prefix, directory=""):
       """Perform the import test."""
       with GitRepository() as lib,\
            GitRepository() as app:
-        mkdir(lib.path("lib"))
-        file1 = join("lib", "test1.h")
-        file2 = join("lib", "test.h")
+        if directory:
+          mkdir(lib.path(directory))
+
+        # Note that joining with an empty directory ("") effectively is
+        # a no-op.
+        file1 = join(directory, "test1.h")
+        file2 = join(directory, "test.h")
 
         write(lib, file1, data="inline int test() { return 1337; }")
         lib.add(file1)
@@ -539,9 +543,10 @@ class TestGitSubrepo(TestCase):
         self.assertTrue(exists(app.path(prefix, file2)))
         self.assertFalse(exists(app.path(prefix, file1)))
 
-    doTest(".")
-    doTest("prefix")
-    doTest(join("dir1", "dir2"))
+    for directory in ("", "lib"):
+      doTest(".", directory=directory)
+      doTest("prefix", directory=directory)
+      doTest(join("dir1", "dir2"), directory=directory)
 
 
   def testIntermixedSubrepoUpdates(self):
