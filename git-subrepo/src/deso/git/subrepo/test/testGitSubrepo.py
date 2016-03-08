@@ -648,5 +648,49 @@ class TestGitSubrepo(TestCase):
       self.assertTrue(exists(appx.path("appx", "src", "appx.cpp")))
 
 
+  def testIntermixedSubrepoUpdatesWithRenames(self):
+    """Verify that intermixed subrepo updates with file renames are handled properly."""
+    def doTest(prefix):
+      """Perform the import test."""
+      with GitRepository() as r1,\
+           GitRepository() as r2,\
+           GitRepository() as r3:
+        write(r1, "test.py", data="foo")
+        r1.add("test.py")
+        r1.commit()
+
+        # 'r3' contains 'r1'.
+        r3.remote("add", "--fetch", "r1", r1.path())
+        r3.subrepo("import", "r1", prefix, "master")
+
+        r1.mv("test.py", "foo.py")
+        r1.commit()
+
+        # So does 'r2', but in a newer state with a renamed file.
+        r2.remote("add", "--fetch", "r1", r1.path())
+        r2.subrepo("import", "r1", prefix, "master")
+
+        # 'r3' also contains 'r2'. This import implicitly updates 'r1'.
+        r3.remote("add", "--fetch", "r2", r2.path())
+        r3.subrepo("import", "r2", ".", "master")
+
+        self.assertFalse(exists(r3.path(prefix, "test.py")))
+        self.assertTrue(exists(r3.path(prefix, "foo.py")))
+
+        # Advance 'r1' to state 3.
+        r1.mv("foo.py", "bar.py")
+        r1.commit()
+
+        r3.fetch("r1")
+        r3.subrepo("import", "r1", prefix, "master")
+
+        self.assertFalse(exists(r3.path(prefix, "test.py")))
+        self.assertFalse(exists(r3.path(prefix, "foo.py")))
+        self.assertTrue(exists(r3.path(prefix, "bar.py")))
+
+    doTest(".")
+    doTest("test")
+
+
 if __name__ == "__main__":
   main()

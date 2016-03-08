@@ -23,6 +23,9 @@ from argparse import (
   ArgumentParser,
   HelpFormatter,
 )
+from bisect import (
+  insort,
+)
 from deso.execute import (
   execute as execute_,
   findCommand,
@@ -351,6 +354,30 @@ def importMessage(repo, prefix, sha1):
   return IMPORT_MSG.format(prefix=prefix, repo=repo, sha1=sha1)
 
 
+def importMessageForImports(imports):
+  """Retrieve a sorted list of import messages for the given imports."""
+  messages = []
+  # The imports can occur in basically arbitrary order. We want the
+  # final import commit message to be somewhat consistent accross
+  # multiple imports so we sort the entries by their final string
+  # representation.
+  for (repo, prefix), sha1 in imports.items():
+    message = importMessage(repo, prefix, sha1)
+    insort(messages, message)
+
+  return messages
+
+
+def importMessageForCommit(repo, prefix, sha1, imports):
+  """Craft a commit message for a subrepo import."""
+  subject = importMessage(repo, prefix, sha1)
+  body = importMessageForImports(imports)
+  if not body:
+    return subject
+
+  return subject + "\n\n" + "\n".join(body)
+
+
 def searchLastImportedCommit(root, commit, repo, prefix):
   """Find the last subrepo import commit for a given remote repository."""
   pattern = importMessage(escape(repo), escape(prefix), "(%s)" % SHA1_R)
@@ -376,6 +403,40 @@ def searchLastImportedCommit(root, commit, repo, prefix):
 
   imported_commit, = match.groups()
   return imported_commit
+
+
+def searchImportedSubrepos(root, head_commit):
+  """Find all subrepos that are imported in the history described by the given commit."""
+  component = "([^ :]+)"
+  pattern = importMessage(component, component, "(%s)" % SHA1_R)
+
+  cmd = git(root, "rev-list", "--extended-regexp", "--grep=^%s$" % pattern, head_commit)
+  out, _ = execute(*cmd, stdout=b"")
+  if out == b"":
+    return {}
+
+  commits = out.decode("utf-8").splitlines()
+  regex = compileRe(pattern)
+
+  imports = {}
+  for commit in commits:
+    message = retrieveMessage(root, commit)
+    # Note that a message can contain multiple imports in case of nested
+    # subrepos. We want them all.
+    for match in regex.finditer(message):
+      prefix, repo, imported_commit = match.groups()
+      # Theoretically, a remote repository can be imported multiple
+      # times (although that really should be avoided). We support this
+      # use case here by indexing with a pair of <repo, prefix> instead
+      # of just the repository name, although other parts of the program
+      # are free to prohibit such imports.
+      key = (repo, prefix)
+      # We only want the SHA1 of the last import of a given remote
+      # repository.
+      if key not in imports:
+        imports[key] = imported_commit
+
+  return imports
 
 
 def import_(repo, prefix, sha1, root=None):
@@ -440,6 +501,7 @@ def import_(repo, prefix, sha1, root=None):
   pipe_cmds = []
   empty_tree = retrieveEmptyTree(root)
   remote_tree = "%s^{tree}" % sha1
+  remote_imports = {}
 
   git_diff_tree = git(root, "diff-tree") + args
   git_diff_index = git(root, "diff-index") + args
@@ -470,13 +532,20 @@ def import_(repo, prefix, sha1, root=None):
     # simply may not be able to access the commit data (in order to see
     # which files/directories are contained in the state it represents).
     if hasHead(root):
-      base_sha1 = searchLastImportedCommit(root, "HEAD", repo, prefix)
-      if base_sha1 is not None:
-        if isValidCommit(root, base_sha1):
-          # Note that the files we find are added to a set, meaning that
-          # duplicates (which are very likely to occur) are simply
-          # discarded.
-          files |= readCommitFiles(root, base_sha1)
+      # We lookup *all* imports that happened in our history as well as
+      # in the past of the given commit.
+      current_imports = searchImportedSubrepos(root, "HEAD")
+      remote_imports = searchImportedSubrepos(root, sha1)
+
+      # Next we take all repository imports that happened in both
+      # repositories (but potentially for different states) plus the
+      # latest import of the remote repository to import itself (if any)
+      # and revert the files associated with them as well.
+      for remote_key in remote_imports.keys() | {(repo, prefix)}:
+        if remote_key in current_imports:
+          imported_sha1 = current_imports[remote_key]
+          if isValidCommit(root, imported_sha1):
+            files |= readCommitFiles(root, imported_sha1)
 
     for file_ in files:
       pipe_cmds += diffAwayFile(file_)
@@ -485,6 +554,7 @@ def import_(repo, prefix, sha1, root=None):
   # remote repository to this one.
   pipe_cmds += [git_diff_tree + [empty_tree, remote_tree]]
   executeSafeApplySpring(git_apply, pipe_cmds)
+  return remote_imports
 
 
 def main(argv):
@@ -527,7 +597,7 @@ def main(argv):
       print(msg, file=stderr)
       return 1
 
-    import_(repo, prefix, sha1, root=root)
+    imports = import_(repo, prefix, sha1, root=root)
 
     if not hasCachedChanges(root):
       # Behave similarly to git commit when invoked with no changes made
@@ -536,7 +606,7 @@ def main(argv):
       return 1
 
     options = ["--edit"] if namespace.edit else []
-    message = IMPORT_MSG.format(prefix=prefix, repo=repo, sha1=sha1)
+    message = importMessageForCommit(repo, prefix, sha1, imports)
     command = git(root, "commit", "--no-verify", "--message=%s" % message, *options)
     execute(*command)
     return 0
