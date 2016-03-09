@@ -47,8 +47,6 @@ from os.path import (
 )
 from re import (
   compile as compileRe,
-  escape,
-  search,
 )
 from sys import (
   argv as sysargv,
@@ -376,33 +374,6 @@ def importMessageForCommit(repo, prefix, sha1, imports):
     return subject
 
   return subject + "\n\n" + "\n".join(body)
-
-
-def searchLastImportedCommit(root, commit, repo, prefix):
-  """Find the last subrepo import commit for a given remote repository."""
-  pattern = importMessage(escape(repo), escape(prefix), "(%s)" % SHA1_R)
-
-  # We search the history (starting with the given commit) for commits
-  # that contain a subrepo import. More precisely, for those that import
-  # the given repository at the given prefix. The first one matching
-  # (i.e., the most recent one), if any, is used.
-  # Note that we use extended regular expressions here in the hope that
-  # they will adhere to the same matching rules as the Python ones so
-  # that we can use the same pattern.
-  cmd = git(root, "rev-list", "--max-count=1", "--extended-regexp", "--grep=^%s$" % pattern, commit)
-  out, _ = execute(*cmd, stdout=b"")
-  import_commit = out.decode("utf-8")[:-1]
-  if import_commit == "":
-    return None
-
-  # If we found such an import commit we need to retrieve the SHA1
-  # representing the state at which the remote repository was imported.
-  message = retrieveMessage(root, import_commit)
-  match = search(pattern, message)
-  assert match is not None, (message, pattern)
-
-  imported_commit, = match.groups()
-  return imported_commit
 
 
 def searchImportedSubrepos(root, head_commit):
