@@ -33,6 +33,9 @@ from deso.execute import (
   ProcessError,
   spring as spring_,
 )
+from functools import (
+  lru_cache,
+)
 from os import (
   curdir,
   devnull,
@@ -287,12 +290,17 @@ class GitImporter:
     self._git = GitExecutor(root, verbose)
 
 
-  def resolveCommit(self, repo, commit):
-    """Resolve a potentially symbolic commit name to a SHA1 hash."""
+  def resolveCommit(self, commit):
+    """Resolve a commit into a SHA1 hash."""
+    out = self._git.execute("rev-parse", "--verify", "%s^{commit}" % commit)
+    return out.decode("utf-8")[:-1]
+
+
+  def resolveRemoteCommit(self, repo, commit):
+    """Resolve a potentially symbolic commit name in a remote repository to a SHA1 hash."""
     try:
       to_import = "refs/remotes/%s/%s" % (repo, commit)
-      out = self._git.execute("rev-parse", to_import)
-      return out.decode("utf-8")[:-1]
+      return self.resolveCommit(to_import)
     except ProcessError:
       # If we already got supplied a SHA1 hash the above command will fail
       # because we prefixed the hash with the repository, which git will
@@ -300,9 +308,8 @@ class GitImporter:
       # dealing with the SHA1 hash (and not something else we do not know
       # how to handle correctly) and ask git to parse it again, which
       # should just return the very same hash.
-      out = self._git.execute("rev-parse", "%s" % commit)
-      out = out.decode("utf-8")[:-1]
-      if out != commit:
+      sha1 = self.resolveCommit(commit)
+      if sha1 != commit:
         # Very likely we will not hit this path because git-rev-parse
         # returns an error and so we raise an exception beforehand. But
         # to be safe we keep it.
@@ -389,7 +396,7 @@ class GitImporter:
         return []
 
     assert trail(prefix) == prefix, prefix
-    assert self.resolveCommit(repo, sha1) == sha1, sha1
+    assert self.resolveRemoteCommit(repo, sha1) == sha1, sha1
 
     # If the prefix resolved to this expression then the subrepo addition
     # is to happen in the root of the repository. This case needs some
@@ -410,7 +417,6 @@ class GitImporter:
     pipe_cmds = []
     empty_tree = self._retrieveEmptyTree()
     remote_tree = "%s^{tree}" % sha1
-    remote_imports = {}
 
     git_diff_tree = self._git.command("diff-tree") + args
     git_diff_index = self._git.command("diff-index") + args
@@ -443,7 +449,8 @@ class GitImporter:
       if self._hasHead():
         # We lookup *all* imports that happened in our history as well as
         # in the past of the given commit.
-        current_imports = self._searchImportedSubrepos("HEAD")
+        head_sha1 = self.resolveCommit("HEAD")
+        current_imports = self._searchImportedSubrepos(head_sha1)
         remote_imports = self._searchImportedSubrepos(sha1)
 
         # Next we take all repository imports that happened in both
@@ -463,12 +470,12 @@ class GitImporter:
     # remote repository to this one.
     pipe_cmds += [git_diff_tree + [empty_tree, remote_tree]]
     executeSafeApplySpring(git_apply, pipe_cmds)
-    return remote_imports
 
 
-  def commit(self, repo, prefix, sha1, imports, edit=False):
+  def commit(self, repo, prefix, sha1, edit=False):
     """Create a commit for an import."""
     options = ["--edit"] if edit else []
+    imports = self._searchImportedSubrepos(sha1)
     message = importMessageForCommit(repo, prefix, sha1, imports)
     self._git.execute("commit", "--no-verify", "--message=%s" % message, *options)
 
@@ -540,8 +547,15 @@ class GitImporter:
     return self._retrieveProperty(commit, "B")
 
 
+  # This method can be rather expensive on large repositories. We cache
+  # the return value in order to speed up repeated invocations.
+  @lru_cache(maxsize=32)
   def _searchImportedSubrepos(self, head_commit):
     """Find all subrepos that are imported in the history described by the given commit."""
+    # For the caching to work reliably the provided commit must be a
+    # SHA1 hash and not just a symbolic name.
+    assert head_commit == self.resolveCommit(head_commit)
+
     component = "([^ :]+)"
     pattern = importMessage(component, component, "(%s)" % SHA1_R)
 
@@ -602,7 +616,7 @@ def main(argv):
     # We always resolve the possibly symbolic commit name into a SHA1
     # hash. The main reason is that we want this hash to be contained in
     # the commit message. So for consistency, we should also work with it.
-    sha1 = git.resolveCommit(repo, namespace.commit)
+    sha1 = git.resolveRemoteCommit(repo, namespace.commit)
 
     if not namespace.force and not git.belongsToRepository(repo, sha1):
       msg = "{commit} is not a reachable commit in remote repository {repo}."
@@ -610,7 +624,7 @@ def main(argv):
       print(msg, file=stderr)
       return 1
 
-    imports = git.import_(repo, prefix, sha1)
+    git.import_(repo, prefix, sha1)
 
     if not git.hasCachedChanges():
       # Behave similarly to git commit when invoked with no changes made
@@ -618,7 +632,7 @@ def main(argv):
       print("No changes", file=stderr)
       return 1
 
-    git.commit(repo, prefix, sha1, imports, namespace.edit)
+    git.commit(repo, prefix, sha1, namespace.edit)
     return 0
   except ProcessError as e:
     if namespace.debug:
