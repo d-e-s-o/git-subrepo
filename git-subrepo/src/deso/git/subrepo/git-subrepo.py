@@ -105,6 +105,15 @@ def spring(commands, *args, **kwargs):
   return spring_(commands, *args, **kwargs)
 
 
+def retrieveDummyPatch(file_):
+  """Retrieve a dummy patch to stop git-apply from returning an error code on an empty diff."""
+  return """\
+diff --git {file} {file}
+new file mode 100644
+index 000000..000000
+""".format(file=file_)
+
+
 class TopLevelHelpFormatter(HelpFormatter):
   """A help formatter class for a top level parser."""
   def add_usage(self, usage, actions, groups, prefix=None):
@@ -205,23 +214,33 @@ def setupArgumentParser():
   return parser
 
 
-def retrieveRepositoryRoot():
-  """Retrieve the root directory of the current git repository."""
-  # This function does not invoke git with the "-C" parameter because it
-  # is the one that retrieves the argument to use with it.
-  out, _ = execute(GIT, "rev-parse", "--show-toplevel", stdout=b"")
-  return out[:-1].decode("utf-8")
+def importMessage(repo, prefix, sha1):
+  """Retrieve an import message for a subrepo import."""
+  return IMPORT_MSG.format(prefix=prefix, repo=repo, sha1=sha1)
 
 
-def retrieveEmptyTree(root):
-  """Retrieve the SHA1 sum of the empty tree."""
-  # Note that the SHA1 sum of the empty tree is constant and *should*
-  # not change. It is '4b825dc642cb6eb9a060e54bf8d69288fbee4904'.
-  # However, to be safe here (and to document how to derive it), we
-  # query it on the fly.
-  cmd = git(root, "hash-object", "-t", "tree", devnull)
-  out, _ = execute(*cmd, stdout=b"")
-  return out[:-1].decode("utf-8")
+def importMessageForImports(imports):
+  """Retrieve a sorted list of import messages for the given imports."""
+  messages = []
+  # The imports can occur in basically arbitrary order. We want the
+  # final import commit message to be somewhat consistent accross
+  # multiple imports so we sort the entries by their final string
+  # representation.
+  for (repo, prefix), sha1 in imports.items():
+    message = importMessage(repo, prefix, sha1)
+    insort(messages, message)
+
+  return messages
+
+
+def importMessageForCommit(repo, prefix, sha1, imports):
+  """Craft a commit message for a subrepo import."""
+  subject = importMessage(repo, prefix, sha1)
+  body = importMessageForImports(imports)
+  if not body:
+    return subject
+
+  return subject + "\n\n" + "\n".join(body)
 
 
 def resolveCommit(root, repo, commit):
@@ -277,21 +296,6 @@ def belongsToRepository(root, repo, sha1):
   return including - excluding > 0
 
 
-def isValidCommit(root, commit):
-  """Check whether a given SHA1 hash references a valid commit."""
-  try:
-    cmd = git(root, "rev-parse", "--quiet", "--verify", "%s^{commit}" % commit)
-    execute(*cmd, stderr=None)
-    return True
-  except ProcessError:
-    return False
-
-
-def hasHead(root):
-  """Check if the repository has a HEAD."""
-  return isValidCommit(root, "HEAD")
-
-
 def hasCachedChanges(root):
   """Check if the repository has changes."""
   try:
@@ -306,108 +310,6 @@ def hasCachedChanges(root):
     return False
   except ProcessError:
     return True
-
-
-def retrieveDummyPatch(file_):
-  """Retrieve a dummy patch to stop git-apply from returning an error code on an empty diff."""
-  return """\
-diff --git {file} {file}
-new file mode 100644
-index 000000..000000
-""".format(file=file_)
-
-
-def readCommitFiles(root, sha1):
-  """Given a commit, retrieve the top-level file objects contained in the state it represents."""
-  cmd = git(root, "ls-tree", "%s^{tree}" % sha1)
-  out, _ = execute(*cmd, stdout=b"")
-  out = out.decode("utf-8")
-  files = set()
-
-  for line in out.splitlines():
-    match = LS_TREE_RE.match(line)
-    if match is not None:
-      file_, = match.groups()
-      files.add(file_)
-
-  return files
-
-
-def retrieveProperty(root, commit, format_):
-  """Retrieve a property (represented by 'format_') of the given commit."""
-  cmd = git(root, "show", "--no-patch", "--format=format:%%%s" % format_, commit)
-  out, _ = execute(*cmd, stdout=b"")
-  return out.decode("utf-8")
-
-
-def retrieveMessage(root, commit):
-  """Retrieve the message (description) of the given commit."""
-  # %B in a git format string represents the raw description, containing
-  # the subject line and the description body.
-  return retrieveProperty(root, commit, "B")
-
-
-def importMessage(repo, prefix, sha1):
-  """Retrieve an import message for a subrepo import."""
-  return IMPORT_MSG.format(prefix=prefix, repo=repo, sha1=sha1)
-
-
-def importMessageForImports(imports):
-  """Retrieve a sorted list of import messages for the given imports."""
-  messages = []
-  # The imports can occur in basically arbitrary order. We want the
-  # final import commit message to be somewhat consistent accross
-  # multiple imports so we sort the entries by their final string
-  # representation.
-  for (repo, prefix), sha1 in imports.items():
-    message = importMessage(repo, prefix, sha1)
-    insort(messages, message)
-
-  return messages
-
-
-def importMessageForCommit(repo, prefix, sha1, imports):
-  """Craft a commit message for a subrepo import."""
-  subject = importMessage(repo, prefix, sha1)
-  body = importMessageForImports(imports)
-  if not body:
-    return subject
-
-  return subject + "\n\n" + "\n".join(body)
-
-
-def searchImportedSubrepos(root, head_commit):
-  """Find all subrepos that are imported in the history described by the given commit."""
-  component = "([^ :]+)"
-  pattern = importMessage(component, component, "(%s)" % SHA1_R)
-
-  cmd = git(root, "rev-list", "--extended-regexp", "--grep=^%s$" % pattern, head_commit)
-  out, _ = execute(*cmd, stdout=b"")
-  if out == b"":
-    return {}
-
-  commits = out.decode("utf-8").splitlines()
-  regex = compileRe(pattern)
-
-  imports = {}
-  for commit in commits:
-    message = retrieveMessage(root, commit)
-    # Note that a message can contain multiple imports in case of nested
-    # subrepos. We want them all.
-    for match in regex.finditer(message):
-      prefix, repo, imported_commit = match.groups()
-      # Theoretically, a remote repository can be imported multiple
-      # times (although that really should be avoided). We support this
-      # use case here by indexing with a pair of <repo, prefix> instead
-      # of just the repository name, although other parts of the program
-      # are free to prohibit such imports.
-      key = (repo, prefix)
-      # We only want the SHA1 of the last import of a given remote
-      # repository.
-      if key not in imports:
-        imports[key] = imported_commit
-
-  return imports
 
 
 def import_(repo, prefix, sha1, root=None):
@@ -526,6 +428,104 @@ def import_(repo, prefix, sha1, root=None):
   pipe_cmds += [git_diff_tree + [empty_tree, remote_tree]]
   executeSafeApplySpring(git_apply, pipe_cmds)
   return remote_imports
+
+
+def retrieveRepositoryRoot():
+  """Retrieve the root directory of the current git repository."""
+  # This function does not invoke git with the "-C" parameter because it
+  # is the one that retrieves the argument to use with it.
+  out, _ = execute(GIT, "rev-parse", "--show-toplevel", stdout=b"")
+  return out[:-1].decode("utf-8")
+
+
+def retrieveEmptyTree(root):
+  """Retrieve the SHA1 sum of the empty tree."""
+  # Note that the SHA1 sum of the empty tree is constant and *should*
+  # not change. It is '4b825dc642cb6eb9a060e54bf8d69288fbee4904'.
+  # However, to be safe here (and to document how to derive it), we
+  # query it on the fly.
+  cmd = git(root, "hash-object", "-t", "tree", devnull)
+  out, _ = execute(*cmd, stdout=b"")
+  return out[:-1].decode("utf-8")
+
+
+def isValidCommit(root, commit):
+  """Check whether a given SHA1 hash references a valid commit."""
+  try:
+    cmd = git(root, "rev-parse", "--quiet", "--verify", "%s^{commit}" % commit)
+    execute(*cmd, stderr=None)
+    return True
+  except ProcessError:
+    return False
+
+
+def hasHead(root):
+  """Check if the repository has a HEAD."""
+  return isValidCommit(root, "HEAD")
+
+
+def readCommitFiles(root, sha1):
+  """Given a commit, retrieve the top-level file objects contained in the state it represents."""
+  cmd = git(root, "ls-tree", "%s^{tree}" % sha1)
+  out, _ = execute(*cmd, stdout=b"")
+  out = out.decode("utf-8")
+  files = set()
+
+  for line in out.splitlines():
+    match = LS_TREE_RE.match(line)
+    if match is not None:
+      file_, = match.groups()
+      files.add(file_)
+
+  return files
+
+
+def retrieveProperty(root, commit, format_):
+  """Retrieve a property (represented by 'format_') of the given commit."""
+  cmd = git(root, "show", "--no-patch", "--format=format:%%%s" % format_, commit)
+  out, _ = execute(*cmd, stdout=b"")
+  return out.decode("utf-8")
+
+
+def retrieveMessage(root, commit):
+  """Retrieve the message (description) of the given commit."""
+  # %B in a git format string represents the raw description, containing
+  # the subject line and the description body.
+  return retrieveProperty(root, commit, "B")
+
+
+def searchImportedSubrepos(root, head_commit):
+  """Find all subrepos that are imported in the history described by the given commit."""
+  component = "([^ :]+)"
+  pattern = importMessage(component, component, "(%s)" % SHA1_R)
+
+  cmd = git(root, "rev-list", "--extended-regexp", "--grep=^%s$" % pattern, head_commit)
+  out, _ = execute(*cmd, stdout=b"")
+  if out == b"":
+    return {}
+
+  commits = out.decode("utf-8").splitlines()
+  regex = compileRe(pattern)
+
+  imports = {}
+  for commit in commits:
+    message = retrieveMessage(root, commit)
+    # Note that a message can contain multiple imports in case of nested
+    # subrepos. We want them all.
+    for match in regex.finditer(message):
+      prefix, repo, imported_commit = match.groups()
+      # Theoretically, a remote repository can be imported multiple
+      # times (although that really should be avoided). We support this
+      # use case here by indexing with a pair of <repo, prefix> instead
+      # of just the repository name, although other parts of the program
+      # are free to prohibit such imports.
+      key = (repo, prefix)
+      # We only want the SHA1 of the last import of a given remote
+      # repository.
+      if key not in imports:
+        imports[key] = imported_commit
+
+  return imports
 
 
 def main(argv):
