@@ -59,7 +59,6 @@ from tempfile import (
 
 GIT = findCommand("git")
 ECHO = findCommand("echo")
-VERBOSE = False
 IMPORT_MSG = "import subrepo {prefix}:{repo} at {sha1}"
 # A meant-to-be regular expression matching no whitespaces.
 NO_WS_R = "[^ \t]+"
@@ -84,25 +83,62 @@ def trail(path):
   return join(path, "")
 
 
-def git(root, *args):
+def _git(root, *args):
   """Create a git command working in the given repository root."""
   return [GIT, "-C", root] + list(args)
 
 
-def execute(*args, **kwargs):
+def _execute(*args, verbose):
   """Run a program, optionally print the full command."""
-  if VERBOSE:
+  if verbose:
     print(formatCommands(list(args)))
 
-  return execute_(*args, **kwargs)
+  # We unconditionally read the stdout output. The overhead in our
+  # context here is not much and we read stderr for error reporting
+  # cases anyway.
+  out, _ = execute_(*args, stdout=b"")
+  return out
 
 
-def spring(commands, *args, **kwargs):
+def _spring(commands, verbose):
   """Run a spring, optionally print the full command."""
-  if VERBOSE:
+  if verbose:
     print(formatCommands(commands))
 
-  return spring_(commands, *args, **kwargs)
+  return spring_(commands)
+
+
+class GitExecutor:
+  """A class for executing git commands."""
+  def __init__(self, root, verbose):
+    """Initialize an executor object in the given git repository root."""
+    assert abspath(root) == root, root
+
+    self._root = root
+    self._verbose = verbose
+
+
+  def command(self, *args):
+    """Create a git command."""
+    return _git(self._root, *args)
+
+
+  def execute(self, *args):
+    """Execute a git command."""
+    return _execute(*self.command(*args), verbose=self._verbose)
+
+
+  def spring(self, commands):
+    """Execute a git command spring."""
+    # Note that currently there are no clients reading output from a
+    # spring so this use-case is not supported.
+    return _spring(commands, verbose=self._verbose)
+
+
+  @property
+  def root(self):
+    """Retrieve the repository root associated with this executor object."""
+    return self._root
 
 
 def retrieveDummyPatch(file_):
@@ -243,302 +279,308 @@ def importMessageForCommit(repo, prefix, sha1, imports):
   return subject + "\n\n" + "\n".join(body)
 
 
-def resolveCommit(root, repo, commit):
-  """Resolve a potentially symbolic commit name to a SHA1 hash."""
-  try:
-    to_import = "refs/remotes/%s/%s" % (repo, commit)
-    cmd = git(root, "rev-parse", to_import)
-    out, _ = execute(*cmd, stdout=b"")
-    return out.decode("utf-8")[:-1]
-  except ProcessError:
-    # If we already got supplied a SHA1 hash the above command will fail
-    # because we prefixed the hash with the repository, which git will
-    # not understand. In such a case we want to make sure we are really
-    # dealing with the SHA1 hash (and not something else we do not know
-    # how to handle correctly) and ask git to parse it again, which
-    # should just return the very same hash.
-    cmd = git(root, "rev-parse", "%s" % commit)
-    out, _ = execute(*cmd, stdout=b"")
-    out = out.decode("utf-8")[:-1]
-    if out != commit:
-      # Very likely we will not hit this path because git-rev-parse
-      # returns an error and so we raise an exception beforehand. But
-      # to be safe we keep it.
-      raise RuntimeError("Commit name '%s' was not understood." % commit)
-
-    return commit
+class GitImporter:
+  """A class handling subrepo imports."""
+  def __init__(self, verbose):
+    """Initialize the git subrepo importer object."""
+    root = self._retrieveRepositoryRoot(verbose)
+    self._git = GitExecutor(root, verbose)
 
 
-def belongsToRepository(root, repo, sha1):
-  """Check whether a given commit belongs to a remote repository."""
-  def countRemoteCommits(*args):
-    """Count the number of reachable commits in a remote repository."""
-    cmd = git(root, "rev-list", "--count", "--remotes=%s" % repo) + list(args)
-    out, _ = execute(*cmd, stdout=b"")
-    return int(out[:-1].decode("utf-8"))
+  def resolveCommit(self, repo, commit):
+    """Resolve a potentially symbolic commit name to a SHA1 hash."""
+    try:
+      to_import = "refs/remotes/%s/%s" % (repo, commit)
+      out = self._git.execute("rev-parse", to_import)
+      return out.decode("utf-8")[:-1]
+    except ProcessError:
+      # If we already got supplied a SHA1 hash the above command will fail
+      # because we prefixed the hash with the repository, which git will
+      # not understand. In such a case we want to make sure we are really
+      # dealing with the SHA1 hash (and not something else we do not know
+      # how to handle correctly) and ask git to parse it again, which
+      # should just return the very same hash.
+      out = self._git.execute("rev-parse", "%s" % commit)
+      out = out.decode("utf-8")[:-1]
+      if out != commit:
+        # Very likely we will not hit this path because git-rev-parse
+        # returns an error and so we raise an exception beforehand. But
+        # to be safe we keep it.
+        raise RuntimeError("Commit name '%s' was not understood." % commit)
 
-  # It is tougher than anticipated to simply find out whether a given
-  # commit belongs to a given remote repository or not. The approach
-  # chosen here is to count the number of reachable commits in a remote
-  # repository with and without the given commit. If there is a
-  # difference in commit count then we deduce that the commit is indeed
-  # part of this repository. A potentially simpler approach is to do a
-  # git-rev-list showing all commits and then "grep" for the commit of
-  # interest. The problem with this approach is that either we need to
-  # read a potentially huge list of commits into a Python string or we
-  # have a dependency to the 'grep' program -- neither of which is
-  # deemed acceptable.
-  including = countRemoteCommits()
-  excluding = countRemoteCommits("^%s" % sha1)
-  # We excluded a single commit but it might be the parent of others
-  # that now are also not listed. So every difference greater zero
-  # indicates that the commit is indeed part of the repository.
-  return including - excluding > 0
+      return commit
 
 
-def hasCachedChanges(root):
-  """Check if the repository has changes."""
-  try:
-    # When using the --exit-code option the command will return 1 (i.e.,
-    # cause an exception to be raised) in case there are changes and 0
-    # otherwise.
-    # Note that we cannot safely use git-diff-index or git-diff-tree
-    # here because we cannot guarantee that a HEAD exists (and those
-    # commands require some form of tree-ish or commit to be provided).
-    cmd = git(root, "diff", "--cached", "--no-patch", "--exit-code", "--quiet")
-    execute(*cmd)
-    return False
-  except ProcessError:
-    return True
+  def belongsToRepository(self, repo, sha1):
+    """Check whether a given commit belongs to a remote repository."""
+    def countRemoteCommits(*args):
+      """Count the number of reachable commits in a remote repository."""
+      out = self._git.execute("rev-list", "--count", "--remotes=%s" % repo, *args)
+      return int(out[:-1].decode("utf-8"))
+
+    # It is tougher than anticipated to simply find out whether a given
+    # commit belongs to a given remote repository or not. The approach
+    # chosen here is to count the number of reachable commits in a remote
+    # repository with and without the given commit. If there is a
+    # difference in commit count then we deduce that the commit is indeed
+    # part of this repository. A potentially simpler approach is to do a
+    # git-rev-list showing all commits and then "grep" for the commit of
+    # interest. The problem with this approach is that either we need to
+    # read a potentially huge list of commits into a Python string or we
+    # have a dependency to the 'grep' program -- neither of which is
+    # deemed acceptable.
+    including = countRemoteCommits()
+    excluding = countRemoteCommits("^%s" % sha1)
+    # We excluded a single commit but it might be the parent of others
+    # that now are also not listed. So every difference greater zero
+    # indicates that the commit is indeed part of the repository.
+    return including - excluding > 0
 
 
-def import_(repo, prefix, sha1, root=None):
-  """Import a remote repository at a given commit at a given prefix."""
-  def executeSafeApplySpring(apply_cmd, pipe_cmds):
-    """Create a spring comprising a pipeline of commands and running git-apply on the result."""
-    # The idea here is: it is possible that a patch created by the given
-    # pipeline of commands is empty. In such a case git-apply will fail,
-    # which is undesired. We cannot work around this issue by catching
-    # the resulting ProcessError because that could mask other errors.
-    # So the work around is to emit a patch into the pipeline that
-    # simply has no effect. To that end, we generate a temporary file
-    # name (without generating the actual file; and yes, we use a
-    # deprecated function because that *is* the correct way and
-    # deprecating it instead of educating people is simply wrong). We
-    # then tell git-apply to exclude this very file.
-    file_ = basename(mktemp(prefix="null", dir=root))
-    commands = [
-      [
-        [ECHO, retrieveDummyPatch(file_)],
-      ] + pipe_cmds,
-      apply_cmd + ["--exclude=%s" % file_],
-    ]
-    spring(commands)
+  def hasCachedChanges(self):
+    """Check if the repository has changes."""
+    try:
+      # When using the --exit-code option the command will return 1 (i.e.,
+      # cause an exception to be raised) in case there are changes and 0
+      # otherwise.
+      # Note that we cannot safely use git-diff-index or git-diff-tree
+      # here because we cannot guarantee that a HEAD exists (and those
+      # commands require some form of tree-ish or commit to be provided).
+      self._git.execute("diff", "--cached", "--no-patch", "--exit-code", "--quiet")
+      return False
+    except ProcessError:
+      return True
 
-  def diffAwayFile(file_):
-    """If a file object exists, create a git command for creating a patch to remove it."""
-    # Note that we deliberately choose to perform the weakest check
-    # possible here to detect presence of the given file/directory (that
-    # is, we just check if it exists at all, not if we have write access
-    # etc.). We let git handle the rest.
-    if lexists(join(root, file_)):
-      # Since we diff against an on-disk path, that will already act as
-      # a prefix. So we pass in --no-prefix here.
-      return [git_diff_index + ["-R", "--no-prefix", empty_tree, file_]]
+
+  def import_(self, repo, prefix, sha1):
+    """Import a remote repository at a given commit at a given prefix."""
+    def executeSafeApplySpring(apply_cmd, pipe_cmds):
+      """Create a spring comprising a pipeline of commands and running git-apply on the result."""
+      # The idea here is: it is possible that a patch created by the given
+      # pipeline of commands is empty. In such a case git-apply will fail,
+      # which is undesired. We cannot work around this issue by catching
+      # the resulting ProcessError because that could mask other errors.
+      # So the work around is to emit a patch into the pipeline that
+      # simply has no effect. To that end, we generate a temporary file
+      # name (without generating the actual file; and yes, we use a
+      # deprecated function because that *is* the correct way and
+      # deprecating it instead of educating people is simply wrong). We
+      # then tell git-apply to exclude this very file.
+      file_ = basename(mktemp(prefix="null", dir=self.root))
+      commands = [
+        [
+          [ECHO, retrieveDummyPatch(file_)],
+        ] + pipe_cmds,
+        apply_cmd + ["--exclude=%s" % file_],
+      ]
+      self._git.spring(commands)
+
+    def diffAwayFile(file_):
+      """If a file object exists, create a git command for creating a patch to remove it."""
+      # Note that we deliberately choose to perform the weakest check
+      # possible here to detect presence of the given file/directory (that
+      # is, we just check if it exists at all, not if we have write access
+      # etc.). We let git handle the rest.
+      if lexists(join(self.root, file_)):
+        # Since we diff against an on-disk path, that will already act as
+        # a prefix. So we pass in --no-prefix here.
+        return [git_diff_index + ["-R", "--no-prefix", empty_tree, file_]]
+      else:
+        return []
+
+    assert trail(prefix) == prefix, prefix
+    assert self.resolveCommit(repo, sha1) == sha1, sha1
+
+    # If the prefix resolved to this expression then the subrepo addition
+    # is to happen in the root of the repository. This case needs some
+    # special treatment later on.
+    root_prefix = "%s%s" % (curdir, sep)
+
+    args = ["--full-index", "--binary", "--no-color"]
+    if prefix != root_prefix:
+      # We want changes to appear relative to the given prefix. Hence, we
+      # need to tell git to generate a patch that contains the appropriate
+      # prefixes.
+      args += ["--src-prefix=%s" % prefix, "--dst-prefix=%s" % prefix]
     else:
-      return []
+      # Do not add a/ or b/ prefixes. This option is required because we
+      # supply -p0 to the apply command.
+      args += ["--no-prefix"]
 
-  if root is None:
-    root = retrieveRepositoryRoot()
+    pipe_cmds = []
+    empty_tree = self._retrieveEmptyTree()
+    remote_tree = "%s^{tree}" % sha1
+    remote_imports = {}
 
-  assert abspath(root) == root, root
-  assert trail(prefix) == prefix, prefix
-  assert resolveCommit(root, repo, sha1) == sha1, sha1
+    git_diff_tree = self._git.command("diff-tree") + args
+    git_diff_index = self._git.command("diff-index") + args
+    git_apply = self._git.command("apply", "-p0", "--binary", "--index", "--apply")
 
-  # If the prefix resolved to this expression then the subrepo addition
-  # is to happen in the root of the repository. This case needs some
-  # special treatment later on.
-  root_prefix = "%s%s" % (curdir, sep)
+    # We need to differentiate two cases here that decide the complexity
+    # of the import we want to perform. Simply put, if the import is going
+    # to happen into a true prefix (that is, not into the repository's
+    # root), things get simpler because we only have to consider the
+    # contents of this prefix directory. If we import into the root
+    # directory we have to provide a pristine environment first, mainly to
+    # make sure we do not miss removing any stale files (from renames in
+    # between imports, for example), which could happen if we only applied
+    # the changes to the desired state on top.
+    if prefix != root_prefix:
+      pipe_cmds += diffAwayFile(prefix)
+    else:
+      files = self._readCommitFiles(sha1)
 
-  args = ["--full-index", "--binary", "--no-color"]
-  if prefix != root_prefix:
-    # We want changes to appear relative to the given prefix. Hence, we
-    # need to tell git to generate a patch that contains the appropriate
-    # prefixes.
-    args += ["--src-prefix=%s" % prefix, "--dst-prefix=%s" % prefix]
-  else:
-    # Do not add a/ or b/ prefixes. This option is required because we
-    # supply -p0 to the apply command.
-    args += ["--no-prefix"]
+      # If we can find a subrepo import commit for the same repository at
+      # the same prefix then we can not only revert the files/directories
+      # created by the new import commit but also by this previous one.
+      # This logic properly handles file/directory file deletions and
+      # renames between imports in the general case.
+      # It is possible for a subrepo import to happen indirectly as part
+      # of another import. Although those cases can be detected, it is
+      # impossible to handle them correctly in a general manner as we
+      # simply may not be able to access the commit data (in order to see
+      # which files/directories are contained in the state it represents).
+      if self._hasHead():
+        # We lookup *all* imports that happened in our history as well as
+        # in the past of the given commit.
+        current_imports = self._searchImportedSubrepos("HEAD")
+        remote_imports = self._searchImportedSubrepos(sha1)
 
-  pipe_cmds = []
-  empty_tree = retrieveEmptyTree(root)
-  remote_tree = "%s^{tree}" % sha1
-  remote_imports = {}
+        # Next we take all repository imports that happened in both
+        # repositories (but potentially for different states) plus the
+        # latest import of the remote repository to import itself (if any)
+        # and revert the files associated with them as well.
+        for remote_key in remote_imports.keys() | {(repo, prefix)}:
+          if remote_key in current_imports:
+            imported_sha1 = current_imports[remote_key]
+            if self._isValidCommit(imported_sha1):
+              files |= self._readCommitFiles(imported_sha1)
 
-  git_diff_tree = git(root, "diff-tree") + args
-  git_diff_index = git(root, "diff-index") + args
-  git_apply = git(root, "apply", "-p0", "--binary", "--index", "--apply")
+      for file_ in files:
+        pipe_cmds += diffAwayFile(file_)
 
-  # We need to differentiate two cases here that decide the complexity
-  # of the import we want to perform. Simply put, if the import is going
-  # to happen into a true prefix (that is, not into the repository's
-  # root), things get simpler because we only have to consider the
-  # contents of this prefix directory. If we import into the root
-  # directory we have to provide a pristine environment first, mainly to
-  # make sure we do not miss removing any stale files (from renames in
-  # between imports, for example), which could happen if we only applied
-  # the changes to the desired state on top.
-  if prefix != root_prefix:
-    pipe_cmds += diffAwayFile(prefix)
-  else:
-    files = readCommitFiles(root, sha1)
-
-    # If we can find a subrepo import commit for the same repository at
-    # the same prefix then we can not only revert the files/directories
-    # created by the new import commit but also by this previous one.
-    # This logic properly handles file/directory file deletions and
-    # renames between imports in the general case.
-    # It is possible for a subrepo import to happen indirectly as part
-    # of another import. Although those cases can be detected, it is
-    # impossible to handle them correctly in a general manner as we
-    # simply may not be able to access the commit data (in order to see
-    # which files/directories are contained in the state it represents).
-    if hasHead(root):
-      # We lookup *all* imports that happened in our history as well as
-      # in the past of the given commit.
-      current_imports = searchImportedSubrepos(root, "HEAD")
-      remote_imports = searchImportedSubrepos(root, sha1)
-
-      # Next we take all repository imports that happened in both
-      # repositories (but potentially for different states) plus the
-      # latest import of the remote repository to import itself (if any)
-      # and revert the files associated with them as well.
-      for remote_key in remote_imports.keys() | {(repo, prefix)}:
-        if remote_key in current_imports:
-          imported_sha1 = current_imports[remote_key]
-          if isValidCommit(root, imported_sha1):
-            files |= readCommitFiles(root, imported_sha1)
-
-    for file_ in files:
-      pipe_cmds += diffAwayFile(file_)
-
-  # Last but not least we need a patch that adds the desired bits of the
-  # remote repository to this one.
-  pipe_cmds += [git_diff_tree + [empty_tree, remote_tree]]
-  executeSafeApplySpring(git_apply, pipe_cmds)
-  return remote_imports
+    # Last but not least we need a patch that adds the desired bits of the
+    # remote repository to this one.
+    pipe_cmds += [git_diff_tree + [empty_tree, remote_tree]]
+    executeSafeApplySpring(git_apply, pipe_cmds)
+    return remote_imports
 
 
-def retrieveRepositoryRoot():
-  """Retrieve the root directory of the current git repository."""
-  # This function does not invoke git with the "-C" parameter because it
-  # is the one that retrieves the argument to use with it.
-  out, _ = execute(GIT, "rev-parse", "--show-toplevel", stdout=b"")
-  return out[:-1].decode("utf-8")
+  def commit(self, repo, prefix, sha1, imports, edit=False):
+    """Create a commit for an import."""
+    options = ["--edit"] if edit else []
+    message = importMessageForCommit(repo, prefix, sha1, imports)
+    self._git.execute("commit", "--no-verify", "--message=%s" % message, *options)
 
 
-def retrieveEmptyTree(root):
-  """Retrieve the SHA1 sum of the empty tree."""
-  # Note that the SHA1 sum of the empty tree is constant and *should*
-  # not change. It is '4b825dc642cb6eb9a060e54bf8d69288fbee4904'.
-  # However, to be safe here (and to document how to derive it), we
-  # query it on the fly.
-  cmd = git(root, "hash-object", "-t", "tree", devnull)
-  out, _ = execute(*cmd, stdout=b"")
-  return out[:-1].decode("utf-8")
+  @property
+  def root(self):
+    """Retrieve the root directory of the git repository this importer is bound to."""
+    return self._git.root
 
 
-def isValidCommit(root, commit):
-  """Check whether a given SHA1 hash references a valid commit."""
-  try:
-    cmd = git(root, "rev-parse", "--quiet", "--verify", "%s^{commit}" % commit)
-    execute(*cmd, stderr=None)
-    return True
-  except ProcessError:
-    return False
+  @staticmethod
+  def _retrieveRepositoryRoot(verbose):
+    """Retrieve the root directory of the current git repository."""
+    # This function does not invoke git with the "-C" parameter because it
+    # is the one that retrieves the argument to use with it.
+    out = _execute(GIT, "rev-parse", "--show-toplevel", verbose=verbose)
+    return out[:-1].decode("utf-8")
 
 
-def hasHead(root):
-  """Check if the repository has a HEAD."""
-  return isValidCommit(root, "HEAD")
+  def _retrieveEmptyTree(self):
+    """Retrieve the SHA1 sum of the empty tree."""
+    # Note that the SHA1 sum of the empty tree is constant and *should*
+    # not change. It is '4b825dc642cb6eb9a060e54bf8d69288fbee4904'.
+    # However, to be safe here (and to document how to derive it), we
+    # query it on the fly.
+    out = self._git.execute("hash-object", "-t", "tree", devnull)
+    return out[:-1].decode("utf-8")
 
 
-def readCommitFiles(root, sha1):
-  """Given a commit, retrieve the top-level file objects contained in the state it represents."""
-  cmd = git(root, "ls-tree", "%s^{tree}" % sha1)
-  out, _ = execute(*cmd, stdout=b"")
-  out = out.decode("utf-8")
-  files = set()
-
-  for line in out.splitlines():
-    match = LS_TREE_RE.match(line)
-    if match is not None:
-      file_, = match.groups()
-      files.add(file_)
-
-  return files
+  def _isValidCommit(self, commit):
+    """Check whether a given SHA1 hash references a valid commit."""
+    try:
+      self._git.execute("rev-parse", "--quiet", "--verify", "%s^{commit}" % commit)
+      return True
+    except ProcessError:
+      return False
 
 
-def retrieveProperty(root, commit, format_):
-  """Retrieve a property (represented by 'format_') of the given commit."""
-  cmd = git(root, "show", "--no-patch", "--format=format:%%%s" % format_, commit)
-  out, _ = execute(*cmd, stdout=b"")
-  return out.decode("utf-8")
+  def _hasHead(self):
+    """Check if the repository has a HEAD."""
+    return self._isValidCommit("HEAD")
 
 
-def retrieveMessage(root, commit):
-  """Retrieve the message (description) of the given commit."""
-  # %B in a git format string represents the raw description, containing
-  # the subject line and the description body.
-  return retrieveProperty(root, commit, "B")
+  def _readCommitFiles(self, sha1):
+    """Given a commit, retrieve the top-level file objects contained in the state it represents."""
+    out = self._git.execute("ls-tree", "%s^{tree}" % sha1)
+    out = out.decode("utf-8")
+    files = set()
+
+    for line in out.splitlines():
+      match = LS_TREE_RE.match(line)
+      if match is not None:
+        file_, = match.groups()
+        files.add(file_)
+
+    return files
 
 
-def searchImportedSubrepos(root, head_commit):
-  """Find all subrepos that are imported in the history described by the given commit."""
-  component = "([^ :]+)"
-  pattern = importMessage(component, component, "(%s)" % SHA1_R)
+  def _retrieveProperty(self, commit, format_):
+    """Retrieve a property (represented by 'format_') of the given commit."""
+    out = self._git.execute("show", "--no-patch", "--format=format:%%%s" % format_, commit)
+    return out.decode("utf-8")
 
-  cmd = git(root, "rev-list", "--extended-regexp", "--grep=^%s$" % pattern, head_commit)
-  out, _ = execute(*cmd, stdout=b"")
-  if out == b"":
-    return {}
 
-  commits = out.decode("utf-8").splitlines()
-  regex = compileRe(pattern)
+  def _retrieveMessage(self, commit):
+    """Retrieve the message (description) of the given commit."""
+    # %B in a git format string represents the raw description, containing
+    # the subject line and the description body.
+    return self._retrieveProperty(commit, "B")
 
-  imports = {}
-  for commit in commits:
-    message = retrieveMessage(root, commit)
-    # Note that a message can contain multiple imports in case of nested
-    # subrepos. We want them all.
-    for match in regex.finditer(message):
-      prefix, repo, imported_commit = match.groups()
-      # Theoretically, a remote repository can be imported multiple
-      # times (although that really should be avoided). We support this
-      # use case here by indexing with a pair of <repo, prefix> instead
-      # of just the repository name, although other parts of the program
-      # are free to prohibit such imports.
-      key = (repo, prefix)
-      # We only want the SHA1 of the last import of a given remote
-      # repository.
-      if key not in imports:
-        imports[key] = imported_commit
 
-  return imports
+  def _searchImportedSubrepos(self, head_commit):
+    """Find all subrepos that are imported in the history described by the given commit."""
+    component = "([^ :]+)"
+    pattern = importMessage(component, component, "(%s)" % SHA1_R)
+
+    out = self._git.execute("rev-list", "--extended-regexp", "--grep=^%s$" % pattern, head_commit)
+    if out == b"":
+      return {}
+
+    commits = out.decode("utf-8").splitlines()
+    regex = compileRe(pattern)
+
+    imports = {}
+    for commit in commits:
+      message = self._retrieveMessage(commit)
+      # Note that a message can contain multiple imports in case of nested
+      # subrepos. We want them all.
+      for match in regex.finditer(message):
+        prefix, repo, imported_commit = match.groups()
+        # Theoretically, a remote repository can be imported multiple
+        # times (although that really should be avoided). We support this
+        # use case here by indexing with a pair of <repo, prefix> instead
+        # of just the repository name, although other parts of the program
+        # are free to prohibit such imports.
+        key = (repo, prefix)
+        # We only want the SHA1 of the last import of a given remote
+        # repository.
+        if key not in imports:
+          imports[key] = imported_commit
+
+    return imports
 
 
 def main(argv):
   """The main function interprets the arguments and acts upon them."""
-  global VERBOSE
-
   parser = setupArgumentParser()
   namespace = parser.parse_args(argv[1:])
-  VERBOSE = namespace.verbose
   repo = getattr(namespace, "remote-repository")
 
   try:
-    root = retrieveRepositoryRoot()
+    git = GitImporter(namespace.verbose)
     # The user-given prefix is to be treated relative to the current
     # working directory. This directory is not necessarily equal to the
     # current repository's root. So we have to perform some path magic in
@@ -547,12 +589,12 @@ def main(argv):
     # prefix relative to the root directory which would result in
     # unexpected behavior.
     prefix = relpath(namespace.prefix)
-    prefix = relpath(prefix, start=root)
+    prefix = relpath(prefix, start=git.root)
     prefix = trail(prefix)
 
     # If the user has cached changes we do not continue as they would be
     # discarded.
-    if hasCachedChanges(root):
+    if git.hasCachedChanges():
       print("Cannot import: Your index contains uncommitted changes.\n"
             "Please commit or stash them.", file=stderr)
       return 1
@@ -560,26 +602,23 @@ def main(argv):
     # We always resolve the possibly symbolic commit name into a SHA1
     # hash. The main reason is that we want this hash to be contained in
     # the commit message. So for consistency, we should also work with it.
-    sha1 = resolveCommit(root, repo, namespace.commit)
+    sha1 = git.resolveCommit(repo, namespace.commit)
 
-    if not namespace.force and not belongsToRepository(root, repo, sha1):
+    if not namespace.force and not git.belongsToRepository(repo, sha1):
       msg = "{commit} is not a reachable commit in remote repository {repo}."
       msg = msg.format(commit=namespace.commit, repo=repo)
       print(msg, file=stderr)
       return 1
 
-    imports = import_(repo, prefix, sha1, root=root)
+    imports = git.import_(repo, prefix, sha1)
 
-    if not hasCachedChanges(root):
+    if not git.hasCachedChanges():
       # Behave similarly to git commit when invoked with no changes made
       # to the repository's state and return 1.
       print("No changes", file=stderr)
       return 1
 
-    options = ["--edit"] if namespace.edit else []
-    message = importMessageForCommit(repo, prefix, sha1, imports)
-    command = git(root, "commit", "--no-verify", "--message=%s" % message, *options)
-    execute(*command)
+    git.commit(repo, prefix, sha1, imports, namespace.edit)
     return 0
   except ProcessError as e:
     if namespace.debug:

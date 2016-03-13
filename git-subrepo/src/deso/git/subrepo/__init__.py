@@ -21,12 +21,7 @@
 
 # The symbol names to export.
 to_import = [
-  "belongsToRepository",
-  "IMPORT_MSG",
-  "hasCachedChanges",
-  "import_",
-  "resolveCommit",
-  "retrieveRepositoryRoot",
+  "GitImporter",
 ]
 
 # Import the desired names from the git-subrepo file. Because a dash is
