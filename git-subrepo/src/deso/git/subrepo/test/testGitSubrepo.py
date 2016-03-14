@@ -91,6 +91,12 @@ class GitRepository(PathMixin, PythonMixin, Repository):
     return out[:-1].decode("utf-8")
 
 
+  def message(self, commit):
+    """Retrieve the commit message of a commit."""
+    out, _ = self.show("--no-patch", "--format=format:%B", commit, stdout=b"")
+    return out.decode("utf-8")
+
+
   @Repository.autoChangeDir
   def subrepo(self, *args):
     """Invoke a git-subrepo command."""
@@ -690,6 +696,31 @@ class TestGitSubrepo(TestCase):
 
     doTest(".")
     doTest("test")
+
+
+  def testNestedImportPrefixes(self):
+    """Check that the prefixes for nested imports are correct."""
+    with GitRepository() as r1,\
+         GitRepository() as r2,\
+         GitRepository() as r3:
+      mkdir(r3.path("r3"))
+      write(r3, "r3", "r3.py", data="r3")
+      r3.add(r3.path("r3", "r3.py"))
+      r3.commit()
+
+      mkdir(r2.path("r2"))
+      write(r2, "r2", "r2.py", data="r2")
+      r2.add(r2.path("r2", "r2.py"))
+      r2.commit()
+
+      r2.remote("add", "--fetch", "r3", r3.path())
+      r2.subrepo("import", "r3", "src-r3", "master")
+
+      r1.remote("add", "--fetch", "r2", r2.path())
+      r1.subrepo("import", "r2", "src-r2", "master")
+
+      self.assertIn("import subrepo src-r2/:r2 at ", r1.message("HEAD"))
+      self.assertIn("import subrepo src-r2/src-r3/:r3 at ", r1.message("HEAD"))
 
 
 if __name__ == "__main__":

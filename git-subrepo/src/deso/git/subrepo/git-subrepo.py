@@ -46,6 +46,7 @@ from os.path import (
   basename,
   join,
   lexists,
+  normpath,
   relpath,
 )
 from re import (
@@ -317,7 +318,7 @@ def importMessage(repo, prefix, sha1):
   return IMPORT_MSG.format(prefix=prefix, repo=repo, sha1=sha1)
 
 
-def importMessageForImports(imports):
+def importMessageForImports(imports, outer_prefix):
   """Retrieve a sorted list of import messages for the given imports."""
   messages = []
   # The imports can occur in basically arbitrary order. We want the
@@ -325,7 +326,11 @@ def importMessageForImports(imports):
   # multiple imports so we sort the entries by their final string
   # representation.
   for (repo, prefix), sha1 in imports.items():
-    message = importMessage(repo, prefix, sha1)
+    # The prefix to embed in a commit message is comprised of the prefix
+    # we performed the import in and the prefix the original import
+    # happened in.
+    import_prefix = trail(normpath(join(outer_prefix, prefix)))
+    message = importMessage(repo, import_prefix, sha1)
     insort(messages, message)
 
   return messages
@@ -334,7 +339,7 @@ def importMessageForImports(imports):
 def importMessageForCommit(repo, prefix, sha1, imports):
   """Craft a commit message for a subrepo import."""
   subject = importMessage(repo, prefix, sha1)
-  body = importMessageForImports(imports)
+  body = importMessageForImports(imports, prefix)
   if not body:
     return subject
 
