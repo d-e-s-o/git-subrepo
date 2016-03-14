@@ -79,6 +79,10 @@ SHA1_R = "[a-z0-9]{40}"
 LS_TREE = "{nows} {type} {nows}\t({file})$"
 LS_TREE_R = LS_TREE.format(nows=NO_WS_R, type=TREE_R, file=FILE_R)
 LS_TREE_RE = compileRe(LS_TREE_R)
+# If the prefix resolved to this expression then the subrepo addition
+# is to happen in the root of the repository. This case needs some
+# special treatment later on.
+ROOT_PREFIX = "%s%s" % (curdir, sep)
 
 
 def trail(path):
@@ -121,14 +125,47 @@ class GitExecutor:
     self._verbose = verbose
 
 
-  def command(self, *args):
+  def _command(self, *args):
     """Create a git command."""
     return _git(self._root, *args)
 
 
+  def _diffArgs(self, prefix):
+    """Retrieve suitable arguments for a git diff invocation."""
+    args = ["--full-index", "--binary", "--no-color"]
+    if prefix != ROOT_PREFIX:
+      # We want changes to appear relative to the given prefix. Hence, we
+      # need to tell git to generate a patch that contains the appropriate
+      # prefixes.
+      args += ["--src-prefix=%s" % prefix, "--dst-prefix=%s" % prefix]
+    else:
+      # Do not add a/ or b/ prefixes. This option is required because we
+      # supply -p0 to the apply command.
+      args += ["--no-prefix"]
+
+    return args
+
+
+  def diffIndexCommand(self):
+    """Retrieve a git-diff-index command."""
+    # Since we diff against an on-disk path, that will already act as
+    # a prefix. So we pass in --no-prefix here.
+    return self._command("diff-index") + self._diffArgs(ROOT_PREFIX)
+
+
+  def diffTreeCommand(self, prefix):
+    """Retrieve a git-diff-tree command."""
+    return self._command("diff-tree") + self._diffArgs(prefix)
+
+
+  def applyCommand(self):
+    """Retrieve a git-apply command."""
+    return self._command("apply", "-p0", "--binary", "--index", "--apply")
+
+
   def execute(self, *args):
     """Execute a git command."""
-    return _execute(*self.command(*args), verbose=self._verbose)
+    return _execute(*self._command(*args), verbose=self._verbose)
 
 
   def spring(self, commands):
@@ -136,6 +173,28 @@ class GitExecutor:
     # Note that currently there are no clients reading output from a
     # spring so this use-case is not supported.
     return _spring(commands, verbose=self._verbose)
+
+
+  def springWithSafeApply(self, pipe_cmds):
+    """Create a spring comprising a pipeline of commands and running git-apply on the result."""
+    # The idea here is: it is possible that a patch created by the given
+    # pipeline of commands is empty. In such a case git-apply will fail,
+    # which is undesired. We cannot work around this issue by catching
+    # the resulting ProcessError because that could mask other errors.
+    # So the work around is to emit a patch into the pipeline that
+    # simply has no effect. To that end, we generate a temporary file
+    # name (without generating the actual file; and yes, we use a
+    # deprecated function because that *is* the correct way and
+    # deprecating it instead of educating people is simply wrong). We
+    # then tell git-apply to exclude this very file.
+    file_ = basename(mktemp(prefix="null", dir=self._root))
+    commands = [
+      [
+        [ECHO, retrieveDummyPatch(file_)],
+      ] + pipe_cmds,
+      self.applyCommand() + ["--exclude=%s" % file_],
+    ]
+    self.spring(commands)
 
 
   @property
@@ -359,29 +418,8 @@ class GitImporter:
       return True
 
 
-  def import_(self, repo, prefix, sha1):
-    """Import a remote repository at a given commit at a given prefix."""
-    def executeSafeApplySpring(apply_cmd, pipe_cmds):
-      """Create a spring comprising a pipeline of commands and running git-apply on the result."""
-      # The idea here is: it is possible that a patch created by the given
-      # pipeline of commands is empty. In such a case git-apply will fail,
-      # which is undesired. We cannot work around this issue by catching
-      # the resulting ProcessError because that could mask other errors.
-      # So the work around is to emit a patch into the pipeline that
-      # simply has no effect. To that end, we generate a temporary file
-      # name (without generating the actual file; and yes, we use a
-      # deprecated function because that *is* the correct way and
-      # deprecating it instead of educating people is simply wrong). We
-      # then tell git-apply to exclude this very file.
-      file_ = basename(mktemp(prefix="null", dir=self.root))
-      commands = [
-        [
-          [ECHO, retrieveDummyPatch(file_)],
-        ] + pipe_cmds,
-        apply_cmd + ["--exclude=%s" % file_],
-      ]
-      self._git.spring(commands)
-
+  def _diffAwayFiles(self, files):
+    """Create a git command pipeline for removing a set of files/directories."""
     def diffAwayFile(file_):
       """If a file object exists, create a git command for creating a patch to remove it."""
       # Note that we deliberately choose to perform the weakest check
@@ -389,38 +427,30 @@ class GitImporter:
       # is, we just check if it exists at all, not if we have write access
       # etc.). We let git handle the rest.
       if lexists(join(self.root, file_)):
-        # Since we diff against an on-disk path, that will already act as
-        # a prefix. So we pass in --no-prefix here.
-        return [git_diff_index + ["-R", "--no-prefix", empty_tree, file_]]
+        return [git_diff_index + ["-R", empty_tree, file_]]
       else:
         return []
 
+    commands = []
+    empty_tree = self._retrieveEmptyTree()
+    git_diff_index = self._git.diffIndexCommand()
+
+    for file_ in files:
+      commands += diffAwayFile(file_)
+
+    return commands
+
+
+  def import_(self, repo, prefix, sha1):
+    """Import a remote repository at a given commit at a given prefix."""
     assert trail(prefix) == prefix, prefix
     assert self.resolveRemoteCommit(repo, sha1) == sha1, sha1
-
-    # If the prefix resolved to this expression then the subrepo addition
-    # is to happen in the root of the repository. This case needs some
-    # special treatment later on.
-    root_prefix = "%s%s" % (curdir, sep)
-
-    args = ["--full-index", "--binary", "--no-color"]
-    if prefix != root_prefix:
-      # We want changes to appear relative to the given prefix. Hence, we
-      # need to tell git to generate a patch that contains the appropriate
-      # prefixes.
-      args += ["--src-prefix=%s" % prefix, "--dst-prefix=%s" % prefix]
-    else:
-      # Do not add a/ or b/ prefixes. This option is required because we
-      # supply -p0 to the apply command.
-      args += ["--no-prefix"]
 
     pipe_cmds = []
     empty_tree = self._retrieveEmptyTree()
     remote_tree = "%s^{tree}" % sha1
 
-    git_diff_tree = self._git.command("diff-tree") + args
-    git_diff_index = self._git.command("diff-index") + args
-    git_apply = self._git.command("apply", "-p0", "--binary", "--index", "--apply")
+    git_diff_tree = self._git.diffTreeCommand(prefix)
 
     # We need to differentiate two cases here that decide the complexity
     # of the import we want to perform. Simply put, if the import is going
@@ -431,8 +461,8 @@ class GitImporter:
     # make sure we do not miss removing any stale files (from renames in
     # between imports, for example), which could happen if we only applied
     # the changes to the desired state on top.
-    if prefix != root_prefix:
-      pipe_cmds += diffAwayFile(prefix)
+    if prefix != ROOT_PREFIX:
+      pipe_cmds += self._diffAwayFiles([prefix])
     else:
       files = self._readCommitFiles(sha1)
 
@@ -463,16 +493,15 @@ class GitImporter:
             if self._isValidCommit(imported_sha1):
               files |= self._readCommitFiles(imported_sha1)
 
-      for file_ in files:
-        pipe_cmds += diffAwayFile(file_)
+      pipe_cmds += self._diffAwayFiles(files)
 
     # Last but not least we need a patch that adds the desired bits of the
     # remote repository to this one.
     pipe_cmds += [git_diff_tree + [empty_tree, remote_tree]]
-    executeSafeApplySpring(git_apply, pipe_cmds)
+    self._git.springWithSafeApply(pipe_cmds)
 
 
-  def commit(self, repo, prefix, sha1, edit=False):
+  def commitImport(self, repo, prefix, sha1, edit=False):
     """Create a commit for an import."""
     options = ["--edit"] if edit else []
     imports = self._searchImportedSubrepos(sha1)
@@ -495,6 +524,7 @@ class GitImporter:
     return out[:-1].decode("utf-8")
 
 
+  @lru_cache(maxsize=1)
   def _retrieveEmptyTree(self):
     """Retrieve the SHA1 sum of the empty tree."""
     # Note that the SHA1 sum of the empty tree is constant and *should*
@@ -587,6 +617,38 @@ class GitImporter:
     return imports
 
 
+def performImport(git, repo, prefix, commit, force=False, edit=False):
+  """Perform a subrepo import."""
+  # If the user has cached changes we do not continue as they would be
+  # discarded.
+  if git.hasCachedChanges():
+    print("Cannot import: Your index contains uncommitted changes.\n"
+          "Please commit or stash them.", file=stderr)
+    return 1
+
+  # We always resolve the possibly symbolic commit name into a SHA1
+  # hash. The main reason is that we want this hash to be contained in
+  # the commit message. So for consistency, we should also work with it.
+  sha1 = git.resolveRemoteCommit(repo, commit)
+
+  if not force and not git.belongsToRepository(repo, sha1):
+    msg = "{sha1} is not a reachable commit in remote repository {repo}."
+    msg = msg.format(sha1=sha1, repo=repo)
+    print(msg, file=stderr)
+    return 1
+
+  git.import_(repo, prefix, sha1)
+
+  if not git.hasCachedChanges():
+    # Behave similarly to git commit when invoked with no changes made
+    # to the repository's state and return 1.
+    print("No changes", file=stderr)
+    return 1
+
+  git.commitImport(repo, prefix, sha1, edit)
+  return 0
+
+
 def main(argv):
   """The main function interprets the arguments and acts upon them."""
   parser = setupArgumentParser()
@@ -606,34 +668,12 @@ def main(argv):
     prefix = relpath(prefix, start=git.root)
     prefix = trail(prefix)
 
-    # If the user has cached changes we do not continue as they would be
-    # discarded.
-    if git.hasCachedChanges():
-      print("Cannot import: Your index contains uncommitted changes.\n"
-            "Please commit or stash them.", file=stderr)
+    if namespace.command == "import":
+      return performImport(git, repo, prefix, namespace.commit,
+                           force=namespace.force, edit=namespace.edit)
+    else:
+      assert False
       return 1
-
-    # We always resolve the possibly symbolic commit name into a SHA1
-    # hash. The main reason is that we want this hash to be contained in
-    # the commit message. So for consistency, we should also work with it.
-    sha1 = git.resolveRemoteCommit(repo, namespace.commit)
-
-    if not namespace.force and not git.belongsToRepository(repo, sha1):
-      msg = "{commit} is not a reachable commit in remote repository {repo}."
-      msg = msg.format(commit=namespace.commit, repo=repo)
-      print(msg, file=stderr)
-      return 1
-
-    git.import_(repo, prefix, sha1)
-
-    if not git.hasCachedChanges():
-      # Behave similarly to git commit when invoked with no changes made
-      # to the repository's state and return 1.
-      print("No changes", file=stderr)
-      return 1
-
-    git.commit(repo, prefix, sha1, namespace.edit)
-    return 0
   except ProcessError as e:
     if namespace.debug:
       raise
