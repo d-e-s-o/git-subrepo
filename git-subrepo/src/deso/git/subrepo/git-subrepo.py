@@ -26,6 +26,9 @@ from argparse import (
 from bisect import (
   insort,
 )
+from collections import (
+  namedtuple,
+)
 from deso.execute import (
   execute as execute_,
   findCommand,
@@ -63,7 +66,8 @@ from tempfile import (
 
 GIT = findCommand("git")
 ECHO = findCommand("echo")
-IMPORT_MSG = "import subrepo {prefix}:{repo} at {sha1}"
+REPO_STR = "{prefix}:{repo}"
+IMPORT_MSG = "import subrepo %s at {sha1}" % REPO_STR
 # A meant-to-be regular expression matching no whitespaces.
 NO_WS_R = "[^ \t]+"
 # We want to filter out all tree objects (i.e., git's version of a
@@ -84,6 +88,13 @@ LS_TREE_RE = compileRe(LS_TREE_R)
 # is to happen in the root of the repository. This case needs some
 # special treatment later on.
 ROOT_PREFIX = "%s%s" % (curdir, sep)
+
+
+class Subrepo(namedtuple("Subrepo", ["repo", "prefix"])):
+  """A class representing (repo, prefix) tuples uniquely identifying a subrepo."""
+  def __str__(self):
+    """Retrieve a textual representation of the subrepo tuple."""
+    return REPO_STR.format(repo=self.repo, prefix=self.prefix)
 
 
 def trail(path):
@@ -313,9 +324,9 @@ def setupArgumentParser():
   return parser
 
 
-def importMessage(repo, prefix, sha1):
+def importMessage(subrepo, sha1):
   """Retrieve an import message for a subrepo import."""
-  return IMPORT_MSG.format(prefix=prefix, repo=repo, sha1=sha1)
+  return IMPORT_MSG.format(prefix=subrepo.prefix, repo=subrepo.repo, sha1=sha1)
 
 
 def importMessageForImports(imports, outer_prefix):
@@ -325,21 +336,21 @@ def importMessageForImports(imports, outer_prefix):
   # final import commit message to be somewhat consistent accross
   # multiple imports so we sort the entries by their final string
   # representation.
-  for (repo, prefix), sha1 in imports.items():
+  for subrepo, sha1 in imports.items():
     # The prefix to embed in a commit message is comprised of the prefix
     # we performed the import in and the prefix the original import
     # happened in.
-    import_prefix = trail(normpath(join(outer_prefix, prefix)))
-    message = importMessage(repo, import_prefix, sha1)
+    import_prefix = trail(normpath(join(outer_prefix, subrepo.prefix)))
+    message = importMessage(Subrepo(subrepo.repo, import_prefix), sha1)
     insort(messages, message)
 
   return messages
 
 
-def importMessageForCommit(repo, prefix, sha1, imports):
+def importMessageForCommit(subrepo, sha1, imports):
   """Craft a commit message for a subrepo import."""
-  subject = importMessage(repo, prefix, sha1)
-  body = importMessageForImports(imports, prefix)
+  subject = importMessage(subrepo, sha1)
+  body = importMessageForImports(imports, subrepo.prefix)
   if not body:
     return subject
 
@@ -446,16 +457,16 @@ class GitImporter:
     return commands
 
 
-  def import_(self, repo, prefix, sha1):
+  def import_(self, subrepo, sha1):
     """Import a remote repository at a given commit at a given prefix."""
-    assert trail(prefix) == prefix, prefix
-    assert self.resolveRemoteCommit(repo, sha1) == sha1, sha1
+    assert trail(subrepo.prefix) == subrepo.prefix, subrepo.prefix
+    assert self.resolveRemoteCommit(subrepo.repo, sha1) == sha1, sha1
 
     pipe_cmds = []
     empty_tree = self._retrieveEmptyTree()
     remote_tree = "%s^{tree}" % sha1
 
-    git_diff_tree = self._git.diffTreeCommand(prefix)
+    git_diff_tree = self._git.diffTreeCommand(subrepo.prefix)
 
     # We need to differentiate two cases here that decide the complexity
     # of the import we want to perform. Simply put, if the import is going
@@ -466,8 +477,8 @@ class GitImporter:
     # make sure we do not miss removing any stale files (from renames in
     # between imports, for example), which could happen if we only applied
     # the changes to the desired state on top.
-    if prefix != ROOT_PREFIX:
-      pipe_cmds += self._diffAwayFiles([prefix])
+    if subrepo.prefix != ROOT_PREFIX:
+      pipe_cmds += self._diffAwayFiles([subrepo.prefix])
     else:
       files = self._readCommitFiles(sha1)
 
@@ -492,7 +503,7 @@ class GitImporter:
         # repositories (but potentially for different states) plus the
         # latest import of the remote repository to import itself (if any)
         # and revert the files associated with them as well.
-        for remote_key in remote_imports.keys() | {(repo, prefix)}:
+        for remote_key in remote_imports.keys() | {subrepo}:
           if remote_key in current_imports:
             imported_sha1 = current_imports[remote_key]
             if self._isValidCommit(imported_sha1):
@@ -506,11 +517,11 @@ class GitImporter:
     self._git.springWithSafeApply(pipe_cmds)
 
 
-  def commitImport(self, repo, prefix, sha1, edit=False):
+  def commitImport(self, subrepo, sha1, edit=False):
     """Create a commit for an import."""
     options = ["--edit"] if edit else []
     imports = self._searchImportedSubrepos(sha1)
-    message = importMessageForCommit(repo, prefix, sha1, imports)
+    message = importMessageForCommit(subrepo, sha1, imports)
     self._git.execute("commit", "--no-verify", "--message=%s" % message, *options)
 
 
@@ -592,7 +603,8 @@ class GitImporter:
     assert head_commit == self.resolveCommit(head_commit)
 
     component = "([^ :]+)"
-    pattern = importMessage(component, component, "(%s)" % SHA1_R)
+    subrepo = Subrepo(component, component)
+    pattern = importMessage(subrepo, "(%s)" % SHA1_R)
 
     out = self._git.execute("rev-list", "--extended-regexp", "--grep=^%s$" % pattern, head_commit)
     if out == b"":
@@ -613,16 +625,16 @@ class GitImporter:
         # use case here by indexing with a pair of <repo, prefix> instead
         # of just the repository name, although other parts of the program
         # are free to prohibit such imports.
-        key = (repo, prefix)
+        subrepo = Subrepo(repo, prefix)
         # We only want the SHA1 of the last import of a given remote
         # repository.
-        if key not in imports:
-          imports[key] = imported_commit
+        if subrepo not in imports:
+          imports[subrepo] = imported_commit
 
     return imports
 
 
-def performImport(git, repo, prefix, commit, force=False, edit=False):
+def performImport(git, subrepo, commit, force=False, edit=False):
   """Perform a subrepo import."""
   # If the user has cached changes we do not continue as they would be
   # discarded.
@@ -634,15 +646,15 @@ def performImport(git, repo, prefix, commit, force=False, edit=False):
   # We always resolve the possibly symbolic commit name into a SHA1
   # hash. The main reason is that we want this hash to be contained in
   # the commit message. So for consistency, we should also work with it.
-  sha1 = git.resolveRemoteCommit(repo, commit)
+  sha1 = git.resolveRemoteCommit(subrepo.repo, commit)
 
-  if not force and not git.belongsToRepository(repo, sha1):
+  if not force and not git.belongsToRepository(subrepo.repo, sha1):
     msg = "{sha1} is not a reachable commit in remote repository {repo}."
-    msg = msg.format(sha1=sha1, repo=repo)
+    msg = msg.format(sha1=sha1, repo=subrepo.repo)
     print(msg, file=stderr)
     return 1
 
-  git.import_(repo, prefix, sha1)
+  git.import_(subrepo, sha1)
 
   if not git.hasCachedChanges():
     # Behave similarly to git commit when invoked with no changes made
@@ -650,7 +662,7 @@ def performImport(git, repo, prefix, commit, force=False, edit=False):
     print("No changes", file=stderr)
     return 1
 
-  git.commitImport(repo, prefix, sha1, edit)
+  git.commitImport(subrepo, sha1, edit)
   return 0
 
 
@@ -672,9 +684,10 @@ def main(argv):
     prefix = relpath(namespace.prefix)
     prefix = relpath(prefix, start=git.root)
     prefix = trail(prefix)
+    subrepo = Subrepo(repo, prefix)
 
     if namespace.command == "import":
-      return performImport(git, repo, prefix, namespace.commit,
+      return performImport(git, subrepo, namespace.commit,
                            force=namespace.force, edit=namespace.edit)
     else:
       assert False

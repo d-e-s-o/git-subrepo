@@ -22,6 +22,7 @@
 # The symbol names to export.
 to_import = [
   "GitImporter",
+  "Subrepo",
 ]
 
 # Import the desired names from the git-subrepo file. Because a dash is
