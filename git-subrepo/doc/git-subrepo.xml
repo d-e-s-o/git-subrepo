@@ -14,9 +14,10 @@
   <refpurpose>Subrepo management for git</refpurpose>
 </refnamediv>
 <refsynopsisdiv id="_synopsis">
-<literallayout><emphasis>git subrepo</emphasis> [--debug] [--edit] [--verbose]
-<emphasis>git subrepo</emphasis> import [--force] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
-<emphasis>git subrepo</emphasis> delete &lt;subrepo&gt; &lt;prefix&gt;</literallayout>
+<literallayout><emphasis>git subrepo</emphasis> [--debug] [--verbose]
+<emphasis>git subrepo</emphasis> import [--edit] [--force] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
+<emphasis>git subrepo</emphasis> delete [--edit] &lt;subrepo&gt; &lt;prefix&gt;
+<emphasis>git subrepo</emphasis> tree</literallayout>
 <simpara></simpara>
 </refsynopsisdiv>
 <refsect1 id="_description">
@@ -69,6 +70,16 @@ delete
   <emphasis>b</emphasis>, pull in a third one, <emphasis>c</emphasis>, deletion of either <emphasis>a</emphasis> or <emphasis>b</emphasis> will not
   delete <emphasis>c</emphasis>. Only once both subrepos <emphasis>a</emphasis> and <emphasis>b</emphasis> get removed, the last
   deletion will delete <emphasis>c</emphasis> as well.
+</simpara>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+tree
+</term>
+<listitem>
+<simpara>
+  Print out the subrepo dependency tree.
 </simpara>
 </listitem>
 </varlistentry>
@@ -317,6 +328,13 @@ $ git subrepo import lib foo/ master</literallayout><simpara></simpara>
 <simpara>Now the subrepo <emphasis>lib</emphasis> in directory foo/ contains the most recent state
 of the original <emphasis>lib</emphasis> while the one imported into the root is still at
 the previous state.</simpara>
+<simpara>The current state of imports can be visualized using the <emphasis>tree</emphasis> command:</simpara>
+<literallayout class="monospaced">$ git subrepo tree
+├── foo/:lib at e6a02545285d187ae0f5c3211421f736a5092b65
+└── ./:lib at 8b3f9546e3dd4ea68f457cdc60859b2f4a342984</literallayout><simpara></simpara>
+<simpara>The output illustrates that the remote repository <emphasis>lib</emphasis> has been
+imported at two prefixes, the root of the repository and the directory
+foo/. It also depicts the commit at which the import happened.</simpara>
 <simpara>During the development of our <emphasis>app</emphasis> we may decide that we no longer need
 the version of <emphasis>lib</emphasis> imported below foo/. We could just remove the files
 by hand but that is cumbersome and would require manually taking care of

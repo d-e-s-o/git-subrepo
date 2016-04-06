@@ -32,9 +32,10 @@ git-subrepo \- Subrepo management for git
 .SH "SYNOPSIS"
 .sp
 .nf
-\fIgit subrepo\fR [\-\-debug] [\-\-edit] [\-\-verbose]
-\fIgit subrepo\fR import [\-\-force] <remote\-repository> <prefix> <commit>
-\fIgit subrepo\fR delete <subrepo> <prefix>
+\fIgit subrepo\fR [\-\-debug] [\-\-verbose]
+\fIgit subrepo\fR import [\-\-edit] [\-\-force] <remote\-repository> <prefix> <commit>
+\fIgit subrepo\fR delete [\-\-edit] <subrepo> <prefix>
+\fIgit subrepo\fR tree
 .fi
 .sp
 .SH "DESCRIPTION"
@@ -69,6 +70,11 @@ and
 get removed, the last deletion will delete
 \fIc\fR
 as well\&.
+.RE
+.PP
+tree
+.RS 4
+Print out the subrepo dependency tree\&.
 .RE
 .SH "OPTIONS"
 .PP
@@ -320,6 +326,23 @@ $ git subrepo import lib foo/ master
 .sp
 .sp
 Now the subrepo \fIlib\fR in directory foo/ contains the most recent state of the original \fIlib\fR while the one imported into the root is still at the previous state\&.
+.sp
+The current state of imports can be visualized using the \fItree\fR command:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+$ git subrepo tree
+├── foo/:lib at e6a02545285d187ae0f5c3211421f736a5092b65
+└── \&./:lib at 8b3f9546e3dd4ea68f457cdc60859b2f4a342984
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+.sp
+The output illustrates that the remote repository \fIlib\fR has been imported at two prefixes, the root of the repository and the directory foo/\&. It also depicts the commit at which the import happened\&.
 .sp
 During the development of our \fIapp\fR we may decide that we no longer need the version of \fIlib\fR imported below foo/\&. We could just remove the files by hand but that is cumbersome and would require manually taking care of handling dependencies correctly\&. Instead, we can delete the subrepo like so:
 .sp

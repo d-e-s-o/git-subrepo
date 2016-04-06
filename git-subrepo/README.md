@@ -81,6 +81,15 @@ represent the state of 'lib' at commit 'feature'. The usual ``git``
 syntax for conveying revisions is understood as the last parameter (see
 git-rev-parse(1)).
 
+The current state of imports can be visualized using the 'tree' command:
+
+``$ git subrepo tree``                                            <br />
+``└── src/lib/:lib at 1e0db5fa317743484948b65d417174358c38938a``
+
+The output illustrates that the remote repository 'lib' has been
+imported at a prefix src/lib within the repository. It also depicts the
+commit at which the import happened.
+
 Over the lifetime of a project dependencies come and go. If a dependency
 that got imported in the form of a subrepo is no longer required, it can
 be removed. The 'delete' command takes care of the removal, like so:

@@ -748,9 +748,10 @@ git-subrepo(1) Manual Page
 <h2 id="_synopsis">SYNOPSIS</h2>
 <div class="sectionbody">
 <div class="verseblock">
-<pre class="content"><em>git subrepo</em> [--debug] [--edit] [--verbose]
-<em>git subrepo</em> import [--force] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
-<em>git subrepo</em> delete &lt;subrepo&gt; &lt;prefix&gt;</pre>
+<pre class="content"><em>git subrepo</em> [--debug] [--verbose]
+<em>git subrepo</em> import [--edit] [--force] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
+<em>git subrepo</em> delete [--edit] &lt;subrepo&gt; &lt;prefix&gt;
+<em>git subrepo</em> tree</pre>
 <div class="attribution">
 </div></div>
 </div>
@@ -801,6 +802,14 @@ delete
   <em>b</em>, pull in a third one, <em>c</em>, deletion of either <em>a</em> or <em>b</em> will not
   delete <em>c</em>. Only once both subrepos <em>a</em> and <em>b</em> get removed, the last
   deletion will delete <em>c</em> as well.
+</p>
+</dd>
+<dt class="hdlist1">
+tree
+</dt>
+<dd>
+<p>
+  Print out the subrepo dependency tree.
 </p>
 </dd>
 </dl></div>
@@ -1072,6 +1081,16 @@ $ git subrepo import lib foo/ master</code></pre>
 <div class="paragraph"><p>Now the subrepo <em>lib</em> in directory foo/ contains the most recent state
 of the original <em>lib</em> while the one imported into the root is still at
 the previous state.</p></div>
+<div class="paragraph"><p>The current state of imports can be visualized using the <em>tree</em> command:</p></div>
+<div class="listingblock">
+<div class="content">
+<pre><code>$ git subrepo tree
+├── foo/:lib at e6a02545285d187ae0f5c3211421f736a5092b65
+└── ./:lib at 8b3f9546e3dd4ea68f457cdc60859b2f4a342984</code></pre>
+</div></div>
+<div class="paragraph"><p>The output illustrates that the remote repository <em>lib</em> has been
+imported at two prefixes, the root of the repository and the directory
+foo/. It also depicts the commit at which the import happened.</p></div>
 <div class="paragraph"><p>During the development of our <em>app</em> we may decide that we no longer need
 the version of <em>lib</em> imported below foo/. We could just remove the files
 by hand but that is cumbersome and would require manually taking care of
@@ -1093,7 +1112,7 @@ so:</p></div>
 <div id="footnotes"><hr /></div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2016-04-05 22:34:03 PDT
+Last updated 2016-04-05 22:47:25 PDT
 </div>
 </div>
 </body>

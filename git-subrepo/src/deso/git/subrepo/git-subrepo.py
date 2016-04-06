@@ -270,18 +270,19 @@ def addStandardArgs(parser):
   )
 
 
-def addOptionalArgs(parser, delete=False):
+def addOptionalArgs(parser, delete=False, tree=False):
   """Add optional arguments to the argument parser."""
   parser.add_argument(
     "-d", "--debug", action="store_true", default=False, dest="debug",
     help="In addition to the already provided error messages also print "
          "backtraces for encountered errors.",
   )
-  parser.add_argument(
-    "-e", "--edit", action="store_true", default=False, dest="edit",
-    help="Open up an editor to allow for editing the commit message.",
-  )
-  if not delete:
+  if not tree:
+    parser.add_argument(
+      "-e", "--edit", action="store_true", default=False, dest="edit",
+      help="Open up an editor to allow for editing the commit message.",
+    )
+  if not delete and not tree:
     parser.add_argument(
       "-f", "--force", action="store_true", default=False, dest="force",
       help="Force import of a subrepo at a given state even if the commit "
@@ -346,6 +347,18 @@ def addDeleteParser(parser):
   addStandardArgs(optional)
 
 
+def addTreeParser(parser):
+  """Add a parser for the 'tree' command to another parser."""
+  tree = parser.add_parser(
+    "tree", add_help=False, formatter_class=SubLevelHelpFormatter,
+    help="Dump the dependency tree of all subrepos.",
+  )
+
+  optional = tree.add_argument_group("Optional arguments")
+  addOptionalArgs(optional, tree=True)
+  addStandardArgs(optional)
+
+
 def setupArgumentParser():
   """Create and initialize an argument parser, ready for use."""
   parser = ArgumentParser(prog="git-subrepo", add_help=False,
@@ -362,6 +375,7 @@ def setupArgumentParser():
 
   addImportParser(subparsers)
   addDeleteParser(subparsers)
+  addTreeParser(subparsers)
   return parser
 
 
@@ -928,11 +942,62 @@ def performDelete(git, subrepo, edit=False):
   return 0
 
 
+def performTree(git):
+  """Dump the dependency tree of all imported subrepos."""
+  def indent(*args):
+    """Retrieve the proper indentation for usage in a tree.
+
+      The function is supplied a variable number of <index, length>
+      tuples. The number of tuples determines the amount of indentation
+      (i.e., the depth of the resulting tree). Each tuple's length
+      represents the total number of elements to print at the respective
+      level. The index reflects the current element at this level.
+
+      Using this data, this function can produce the indentation of a
+      single line of an arbitrarily deep tree. E.g.:
+        ├── <s1>
+        │   ├── <s2>
+        │   └── <s3>
+        └── <s4>
+    """
+    indentation = ""
+
+    for i, (index, length) in enumerate(args):
+      if i < len(args) - 1:
+        if index < length - 1:
+          indentation += "│   "
+        else:
+          indentation += "    "
+      else:
+        if index < length - 1:
+          indentation += "├── "
+        else:
+          indentation += "└── "
+
+    return indentation
+
+  if git._hasHead():
+    head_sha1 = git.resolveCommit("HEAD")
+    imports = git._searchImportedSubrepos(head_sha1)
+    for i, (subrepo, (sha1, dependencies)) in enumerate(imports.items()):
+      indentation = indent((i, len(imports)))
+      string = "%s at %s" % (subrepo, sha1)
+      print("%s%s" % (indentation, string))
+
+      for j, (dependency, dep_sha1) in enumerate(dependencies):
+        indentation = indent((i, len(imports)), (j, len(dependencies)))
+        string = "%s at %s" % (dependency, dep_sha1)
+        print("%s%s" % (indentation, string))
+
+  return 0
+
+
 def main(argv):
   """The main function interprets the arguments and acts upon them."""
   parser = setupArgumentParser()
   namespace = parser.parse_args(argv[1:])
-  repo = getattr(namespace, "remote-repository")
+  if namespace.command != "tree":
+    repo = getattr(namespace, "remote-repository")
 
   try:
     git = GitImporter(namespace.verbose)
@@ -943,16 +1008,19 @@ def main(argv):
     # repository's root. If we did nothing here git would always treat the
     # prefix relative to the root directory which would result in
     # unexpected behavior.
-    prefix = relpath(namespace.prefix)
-    prefix = relpath(prefix, start=git.root)
-    prefix = trail(prefix)
-    subrepo = Subrepo(repo, prefix)
+    if namespace.command != "tree":
+      prefix = relpath(namespace.prefix)
+      prefix = relpath(prefix, start=git.root)
+      prefix = trail(prefix)
+      subrepo = Subrepo(repo, prefix)
 
     if namespace.command == "import":
       return performImport(git, subrepo, namespace.commit,
                            force=namespace.force, edit=namespace.edit)
     elif namespace.command == "delete":
       return performDelete(git, subrepo, edit=namespace.edit)
+    elif namespace.command == "tree":
+      return performTree(git)
     else:
       assert False
       return 1
