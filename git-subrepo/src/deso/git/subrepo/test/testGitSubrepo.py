@@ -723,5 +723,231 @@ class TestGitSubrepo(TestCase):
       self.assertIn("import subrepo src-r2/src-r3/:r3 at ", r1.message("HEAD"))
 
 
+  def testSubrepoDelete(self):
+    """Verify that a subrepo can be deleted."""
+    def doTest(prefix):
+      """Perform the import test."""
+      with GitRepository() as r1,\
+           GitRepository() as r2:
+        write(r1, "subrepoFile.py", data="r1")
+        r1.add("subrepoFile.py")
+        r1.commit()
+
+        r2.remote("add", "--fetch", "r1", r1.path())
+        r2.subrepo("import", "r1", prefix, "master")
+        self.assertTrue(exists(r2.path(prefix, "subrepoFile.py")))
+
+        r2.subrepo("delete", "r1", prefix)
+        self.assertFalse(exists(r2.path(prefix, "subrepoFile.py")))
+
+    doTest(".")
+    doTest("prefix")
+
+
+  def testSubrepoDelete(self):
+    """Check that subrepo deletion commit messages have the expected format."""
+    with GitRepository() as repo1,\
+         GitRepository() as repo2,\
+         GitRepository() as repo3,\
+         GitRepository() as repo4:
+      write(repo1, "first.py", data="first repo file")
+      repo1.add("first.py")
+      repo1.commit()
+
+      write(repo2, "second.py", data="second repo file")
+      repo2.add("second.py")
+      repo2.commit()
+      repo2.remote("add", "--fetch", "repo1", repo1.path())
+      repo2.subrepo("import", "repo1", "prefix1", "master")
+
+      write(repo3, "third.py", data="third repo file")
+      repo3.add("third.py")
+      repo3.commit()
+      repo3.remote("add", "--fetch", "repo2", repo2.path())
+      repo3.subrepo("import", "repo2", "prefix2", "master")
+
+      write(repo4, "fourth.py", data="fourth repo file")
+      repo4.add("fourth.py")
+      repo4.commit()
+      repo4.remote("add", "--fetch", "repo3", repo3.path())
+      repo4.subrepo("import", "repo3", "prefix3", "master")
+
+      repo4.subrepo("delete", "repo3", "prefix3")
+
+      message = repo4.message("HEAD").splitlines()
+      self.assertEqual(len(message), 4)
+      self.assertEqual(message[0], "delete subrepo prefix3/:repo3")
+      self.assertEqual(message[1], "")
+      self.assertEqual(message[2], "delete subrepo prefix3/prefix2/:repo2")
+      self.assertEqual(message[3], "delete subrepo prefix3/prefix2/prefix1/:repo1")
+
+
+  def testIntermixedSubrepoDelete(self):
+    """Verify that deletion of subrepos imported directly and indirectly works as expected."""
+    def doTest(prefix):
+      """Perform the import test."""
+      with GitRepository() as r1,\
+           GitRepository() as r2,\
+           GitRepository() as r3:
+        write(r1, "r1.py", data="data")
+        r1.add("r1.py")
+        r1.commit()
+
+        r3.remote("add", "--fetch", "r1", r1.path())
+        r3.subrepo("import", "r1", prefix, "master")
+
+        r2.remote("add", "--fetch", "r1", r1.path())
+        r2.subrepo("import", "r1", ".", "master")
+
+        write(r2, "r2.cc", data="data")
+        r2.add("r2.cc")
+        r2.commit()
+
+        r3.remote("add", "--fetch", "r2", r2.path())
+        r3.subrepo("import", "r2", prefix, "master")
+
+        self.assertTrue(exists(r3.path(prefix, "r1.py")))
+        self.assertTrue(exists(r3.path(prefix, "r2.cc")))
+
+        # Make some changes in 'r1' and create a new commit.
+        write(r1, "blubb.py", data="foo")
+        r1.add("blubb.py")
+        r1.commit()
+
+        # Import 'r1' directly into 'r3'.
+        r3.fetch("r1")
+        r3.subrepo("import", "r1", prefix, "master")
+
+        # Also create a file in 'r3' directly.
+        write(r3, "r3.py", data="data")
+        r3.add("r3.py")
+        r3.commit()
+
+        self.assertTrue(exists(r3.path(prefix, "r1.py")))
+        self.assertTrue(exists(r3.path(prefix, "blubb.py")))
+        self.assertTrue(exists(r3.path(prefix, "r2.cc")))
+        self.assertTrue(exists(r3.path("r3.py")))
+
+        # Now delete 'r2' from 'r3'.
+        r3.subrepo("delete", "r2", prefix)
+
+        # The contents of 'r1' must persist because it got imported
+        # directly into 'r3' as well, not just as a dependency of 'r2'.
+        self.assertTrue(exists(r3.path(prefix, "r1.py")))
+        self.assertTrue(exists(r3.path(prefix, "blubb.py")))
+        self.assertFalse(exists(r3.path(prefix, "r2.cc")))
+        self.assertTrue(exists(r3.path("r3.py")))
+
+    doTest(".")
+    doTest("foo")
+
+
+  def testCannotDeleteUnknownSubrepo(self):
+    """Check that we fail properly when attempting to delete an unknown subrepo."""
+    def doTest(prefix):
+      """Perform the deletion test."""
+      with GitRepository() as r1,\
+           GitRepository() as r2:
+        write(r1, "r1.c", data="r1")
+        r1.add("r1.c")
+        r1.commit()
+
+        r2.remote("add", "--fetch", "r1", r1.path())
+        r2.subrepo("import", "r1", prefix, "master")
+
+        regex = r"Subrepo .* not found"
+        with self.assertRaisesRegex(ProcessError, regex):
+          r2.subrepo("delete", "r3", prefix)
+
+    doTest(".")
+    doTest("foo")
+
+
+  def testCannotDeleteSubrepoAtOtherPrefix(self):
+    """Verify that subrepo deletion only works with the correct prefix."""
+    def doTest(import_prefix, delete_prefix):
+      """Perform the deletion test."""
+      with GitRepository() as r1,\
+           GitRepository() as r2:
+        write(r1, "r1.c", data="r1")
+        r1.add("r1.c")
+        r1.commit()
+
+        r2.remote("add", "--fetch", "r1", r1.path())
+        r2.subrepo("import", "r1", import_prefix, "master")
+
+        regex = r"Subrepo .* not found"
+        with self.assertRaisesRegex(ProcessError, regex):
+          r2.subrepo("delete", "r1", delete_prefix)
+
+    doTest(".", "foo")
+    doTest("foo", ".")
+
+
+  def testCannotDeleteDependentSubrepo(self):
+    """Verify that we cannot delete a subrepo that still is a dependency of another."""
+    def doTest(prefix, lib2_prefixed=False):
+      """Perform a test run."""
+      with GitRepository() as lib1,\
+           GitRepository() as lib2,\
+           GitRepository() as app:
+        if lib2_prefixed:
+           lib2_prefix = "."
+           app_prefix = prefix
+        else:
+           lib2_prefix = prefix
+           app_prefix = "."
+
+        write(lib1, "somefilewithaweirdname.y", data="ya?")
+        lib1.add("somefilewithaweirdname.y")
+        lib1.commit()
+
+        write(lib2, "lib2.file", data="data!")
+        lib2.add("lib2.file")
+        lib2.commit()
+
+        lib2.remote("add", "--fetch", "lib1", lib1.path())
+        lib2.subrepo("import", "lib1", lib2_prefix, "master")
+
+        app.remote("add", "--fetch", "lib1", lib1.path())
+        app.subrepo("import", "lib1", prefix, "master")
+
+        app.remote("add", "--fetch", "lib2", lib2.path())
+        app.subrepo("import", "lib2", app_prefix, "master")
+
+        regex = r"Cannot delete subrepo .* Still a dependency of"
+        with self.assertRaisesRegex(ProcessError, regex):
+          app.subrepo("delete", "lib1", prefix)
+
+    doTest(".")
+    doTest("dir", True)
+    doTest("foobar", False)
+
+
+  def testIndirectlyPulledInSubrepoCannotBeDeleted(self):
+    """Verify that a subrepo that got pulled in only as dependency of another cannot be deleted."""
+    def doTest(prefix):
+      """Perform a test run."""
+      with GitRepository() as lib1,\
+           GitRepository() as lib2,\
+           GitRepository() as app:
+        write(lib1, "hello.cc", data="/* C++ */")
+        lib1.add("hello.cc")
+        lib1.commit()
+
+        lib2.remote("add", "--fetch", "lib1", lib1.path())
+        lib2.subrepo("import", "lib1", ".", "master")
+
+        app.remote("add", "--fetch", "lib2", lib2.path())
+        app.subrepo("import", "lib2", prefix, "master")
+
+        regex = r"Cannot delete subrepo .* as it did not get imported directly."
+        with self.assertRaisesRegex(ProcessError, regex):
+          app.subrepo("delete", "lib1", prefix)
+
+    doTest(".")
+    doTest("dir")
+
+
 if __name__ == "__main__":
   main()

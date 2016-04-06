@@ -47,6 +47,7 @@ from os import (
 from os.path import (
   abspath,
   basename,
+  commonprefix,
   join,
   lexists,
   normpath,
@@ -68,6 +69,7 @@ GIT = findCommand("git")
 ECHO = findCommand("echo")
 REPO_STR = "{prefix}:{repo}"
 IMPORT_MSG = "import subrepo %s at {sha1}" % REPO_STR
+DELETE_MSG = "delete subrepo %s" % REPO_STR
 # A meant-to-be regular expression matching no whitespaces.
 NO_WS_R = "[^ \t]+"
 # We want to filter out all tree objects (i.e., git's version of a
@@ -88,6 +90,21 @@ LS_TREE_RE = compileRe(LS_TREE_R)
 # is to happen in the root of the repository. This case needs some
 # special treatment later on.
 ROOT_PREFIX = "%s%s" % (curdir, sep)
+
+
+class SubrepoError(RuntimeError):
+  """The base class for git-subrepo exceptions."""
+  pass
+
+
+class DependencyError(SubrepoError):
+  """A class used for signaling dependency problems."""
+  pass
+
+
+class DeletionError(SubrepoError):
+  """A class used for signaling problems in deleting a repository."""
+  pass
 
 
 class Subrepo(namedtuple("Subrepo", ["repo", "prefix"])):
@@ -253,7 +270,7 @@ def addStandardArgs(parser):
   )
 
 
-def addOptionalArgs(parser):
+def addOptionalArgs(parser, delete=False):
   """Add optional arguments to the argument parser."""
   parser.add_argument(
     "-d", "--debug", action="store_true", default=False, dest="debug",
@@ -264,12 +281,13 @@ def addOptionalArgs(parser):
     "-e", "--edit", action="store_true", default=False, dest="edit",
     help="Open up an editor to allow for editing the commit message.",
   )
-  parser.add_argument(
-    "-f", "--force", action="store_true", default=False, dest="force",
-    help="Force import of a subrepo at a given state even if the commit "
-         "representing the state was not found to belong to the remote "
-         "repository from which to import.",
-  )
+  if not delete:
+    parser.add_argument(
+      "-f", "--force", action="store_true", default=False, dest="force",
+      help="Force import of a subrepo at a given state even if the commit "
+           "representing the state was not found to belong to the remote "
+           "repository from which to import.",
+    )
   parser.add_argument(
     "-v", "--verbose", action="store_true", default=False, dest="verbose",
     help="Be more verbose about what is being done by displaying the git "
@@ -306,6 +324,28 @@ def addImportParser(parser):
   addStandardArgs(optional)
 
 
+def addDeleteParser(parser):
+  """Add a parser for the 'delete' command to another parser."""
+  delete_ = parser.add_parser(
+    "delete", add_help=False, formatter_class=SubLevelHelpFormatter,
+    help="Delete a previously imported subrepo.",
+  )
+
+  required = delete_.add_argument_group("Required arguments")
+  required.add_argument(
+    "remote-repository", action="store",
+    help="The name of the previously imported remote repository.",
+  )
+  required.add_argument(
+    "prefix", action="store",
+    help="The prefix of the imported subrepo.",
+  )
+
+  optional = delete_.add_argument_group("Optional arguments")
+  addOptionalArgs(optional, delete=True)
+  addStandardArgs(optional)
+
+
 def setupArgumentParser():
   """Create and initialize an argument parser, ready for use."""
   parser = ArgumentParser(prog="git-subrepo", add_help=False,
@@ -321,6 +361,7 @@ def setupArgumentParser():
   addStandardArgs(optional)
 
   addImportParser(subparsers)
+  addDeleteParser(subparsers)
   return parser
 
 
@@ -351,6 +392,39 @@ def importMessageForCommit(subrepo, sha1, imports):
   """Craft a commit message for a subrepo import."""
   subject = importMessage(subrepo, sha1)
   body = importMessageForImports(imports, subrepo.prefix)
+  if not body:
+    return subject
+
+  return subject + "\n\n" + "\n".join(body)
+
+
+def deleteMessage(subrepo):
+  """Retrieve a commit message for a subrepo deletion."""
+  return DELETE_MSG.format(prefix=subrepo.prefix, repo=subrepo.repo)
+
+
+def deleteMessageForDeletion(dependencies):
+  """Retrieve a sorted list of delete messages for the given deletion."""
+  messages = []
+  # The dependencies can occur in basically arbitrary order. We want the
+  # final import commit message to be somewhat consistent accross
+  # multiple commits so we sort the entries by their final string
+  # representation.
+  for subrepo, _ in dependencies:
+    # Note that compared to the import we do not have to make any
+    # adjustments to the prefix to use in the deletion message -- we can
+    # simply reuse the same prefix as for the import.
+    assert subrepo.prefix == trail(subrepo.prefix), subrepo.prefix
+    message = deleteMessage(subrepo)
+    insort(messages, message)
+
+  return messages
+
+
+def deleteMessageForCommit(subrepo, dependencies):
+  """Craft a commit message for a subrepo deletion."""
+  subject = deleteMessage(subrepo)
+  body = deleteMessageForDeletion(dependencies)
   if not body:
     return subject
 
@@ -434,6 +508,26 @@ class GitImporter:
       return True
 
 
+  def removeSubsumedFiles(self, files):
+    """Remove files that are subsumed by directories."""
+    # TODO: The logic here is broken. os.path.commonprefix does not
+    #       check prefixes on a file/directory level but purely on a
+    #       string basis, meaning foo/barbaz would be "subsumed" by
+    #       foo/bar (because foo/bar is a common prefix of foo/barbaz on
+    #       a string level).
+    files = sorted(files)
+    new_files = []
+    for i, file_ in enumerate(files):
+      if i < len(files) - 1:
+        p = commonprefix([file_, files[i+1]])
+        if p == file_:
+          continue
+
+      new_files += [file_]
+
+    return new_files
+
+
   def _diffAwayFiles(self, files):
     """Create a git command pipeline for removing a set of files/directories."""
     def diffAwayFile(file_):
@@ -467,49 +561,37 @@ class GitImporter:
     remote_tree = "%s^{tree}" % sha1
 
     git_diff_tree = self._git.diffTreeCommand(subrepo.prefix)
+    files = self._readCommitFiles(sha1, subrepo.prefix)
 
-    # We need to differentiate two cases here that decide the complexity
-    # of the import we want to perform. Simply put, if the import is going
-    # to happen into a true prefix (that is, not into the repository's
-    # root), things get simpler because we only have to consider the
-    # contents of this prefix directory. If we import into the root
-    # directory we have to provide a pristine environment first, mainly to
-    # make sure we do not miss removing any stale files (from renames in
-    # between imports, for example), which could happen if we only applied
-    # the changes to the desired state on top.
-    if subrepo.prefix != ROOT_PREFIX:
-      pipe_cmds += self._diffAwayFiles([subrepo.prefix])
-    else:
-      files = self._readCommitFiles(sha1)
+    # If we can find a subrepo import commit for the same repository at
+    # the same prefix then we can not only revert the files/directories
+    # created by the new import commit but also by this previous one.
+    # This logic properly handles file/directory file deletions and
+    # renames between imports in the general case.
+    # It is possible for a subrepo import to happen indirectly as part
+    # of another import. Although those cases can be detected, it is
+    # impossible to handle them correctly in a general manner as we
+    # simply may not be able to access the commit data (in order to see
+    # which files/directories are contained in the state it represents).
+    if self._hasHead():
+      # We lookup *all* imports that happened in our history as well as
+      # in the past of the given commit.
+      head_sha1 = self.resolveCommit("HEAD")
+      current_imports = self._searchImportedSubrepos(head_sha1, flat=True)
+      remote_imports = self._searchImportedSubrepos(sha1, flat=True)
 
-      # If we can find a subrepo import commit for the same repository at
-      # the same prefix then we can not only revert the files/directories
-      # created by the new import commit but also by this previous one.
-      # This logic properly handles file/directory file deletions and
-      # renames between imports in the general case.
-      # It is possible for a subrepo import to happen indirectly as part
-      # of another import. Although those cases can be detected, it is
-      # impossible to handle them correctly in a general manner as we
-      # simply may not be able to access the commit data (in order to see
-      # which files/directories are contained in the state it represents).
-      if self._hasHead():
-        # We lookup *all* imports that happened in our history as well as
-        # in the past of the given commit.
-        head_sha1 = self.resolveCommit("HEAD")
-        current_imports = self._searchImportedSubrepos(head_sha1)
-        remote_imports = self._searchImportedSubrepos(sha1)
+      # Next we take all repository imports that happened in both
+      # repositories (but potentially for different states) plus the
+      # latest import of the remote repository to import itself (if any)
+      # and revert the files associated with them as well.
+      for remote_key in remote_imports.keys() | {subrepo}:
+        if remote_key in current_imports:
+          imported_sha1 = current_imports[remote_key]
+          if self._isValidCommit(imported_sha1):
+            files |= self._readCommitFiles(imported_sha1, remote_key.prefix)
 
-        # Next we take all repository imports that happened in both
-        # repositories (but potentially for different states) plus the
-        # latest import of the remote repository to import itself (if any)
-        # and revert the files associated with them as well.
-        for remote_key in remote_imports.keys() | {subrepo}:
-          if remote_key in current_imports:
-            imported_sha1 = current_imports[remote_key]
-            if self._isValidCommit(imported_sha1):
-              files |= self._readCommitFiles(imported_sha1)
-
-      pipe_cmds += self._diffAwayFiles(files)
+    files = self.removeSubsumedFiles(files)
+    pipe_cmds += self._diffAwayFiles(files)
 
     # Last but not least we need a patch that adds the desired bits of the
     # remote repository to this one.
@@ -520,8 +602,121 @@ class GitImporter:
   def commitImport(self, subrepo, sha1, edit=False):
     """Create a commit for an import."""
     options = ["--edit"] if edit else []
-    imports = self._searchImportedSubrepos(sha1)
+    imports = self._searchImportedSubrepos(sha1, flat=True)
     message = importMessageForCommit(subrepo, sha1, imports)
+    self._git.execute("commit", "--no-verify", "--message=%s" % message, *options)
+
+
+  def _findSubreposForDeletion(self, subrepo):
+    """Find the dependent subrepos for a deletion."""
+    def flattenImports(tree):
+      """Flatten a subrepo import tree by forcing all imports into a set."""
+      flat = {subrepo_ for _, dependencies in tree.values()
+                         for subrepo_, _ in dependencies}
+      return tree.keys() | flat
+
+    assert trail(subrepo.prefix) == subrepo.prefix, subrepo.prefix
+
+    # Retrieve the full dependency tree for this repository. That is,
+    # all the imported subrepos along with the subrepos they pulled in.
+    head_sha1 = self.resolveCommit("HEAD")
+    imports = self._searchImportedSubrepos(head_sha1)
+
+    # Remove the top-level import of the repository we want to remove
+    # from the set of imports (we know the repository is in there and it
+    # hinders proper checking of dependencies while in there).
+    without = {s: (v, d) for s, (v, d) in imports.items() if s != subrepo}
+    # In order to perform checks on all imported subrepos, we need to
+    # flatten the hierarchy. That is, we want all subrepos imported as
+    # dependencies to be directly indexable as well.
+    flattened = flattenImports(without)
+    if subrepo not in imports:
+      # We only support deletion of subrepos that were imported directly
+      # and not just pulled in as a dependency of another subrepo.
+      if subrepo in flattened:
+        raise DeletionError("Cannot delete subrepo %s as it did not get "\
+                            "imported directly." % str(subrepo))
+      else:
+        raise DeletionError("Subrepo %s not found." % str(subrepo))
+
+    # Retrieve the SHA1 of the imported commit of the most recent import
+    # of the subrepo to delete as well as the list of dependencies
+    # imported along. We need the dependency list because we want to
+    # remove those dependencies as well.
+    commit, dependencies = imports[subrepo]
+
+    delete_dependencies = set()
+    ignore_dependencies = set()
+
+    for imported_subrepo, imported_sha1 in [(subrepo, commit)] + dependencies:
+      # Check if the given (prefix, repo) combination got pulled in
+      # as part of another import as well, and not just as part of the
+      # subrepo import which we are about to delete.
+      if imported_subrepo in flattened:
+        # If we are dealing with the repository we want to delete then
+        # abort straight away. If, on the other hand, we are just
+        # handling a dependency that got pulled in by another import, we
+        # just silently continue because this dependency is still
+        # needed.
+        if imported_subrepo is subrepo:
+          message = "Cannot delete subrepo %s. Still a dependency of %s."
+          raise DependencyError(message % (subrepo, imported_subrepo))
+        else:
+          ignore_dependencies |= {(imported_subrepo, imported_sha1)}
+      else:
+        delete_dependencies |= {(imported_subrepo, imported_sha1)}
+
+    return delete_dependencies, ignore_dependencies
+
+
+  def delete(self, subrepo):
+    """Delete a previously imported subrepo."""
+    assert trail(subrepo.prefix) == subrepo.prefix, subrepo.prefix
+
+    if not self._hasHead():
+      return
+
+    delete_deps, ignore_deps = self._findSubreposForDeletion(subrepo)
+
+    # We omit a subrepo from deletion. We need to remember the
+    # files it comprises as those might be removed by deletion of a
+    # "parent" subrepo, which is not what we want.
+    # TODO: It is questionable whether the logic to exclude commits that
+    #       are "invalid" (i.e., simply unknown in this repository) is
+    #       sane. Couldn't it be that we delete too many/too few files
+    #       because of that?
+    ignore_files = {file_ for subrepo_, sha1 in ignore_deps
+                     if self._isValidCommit(sha1)
+                       for file_ in self._readCommitFiles(sha1, subrepo_.prefix)}
+    # The set of files/directories which we want to remove. It basically
+    # comprises the top-level files/directories of the commits that got
+    # imported (directly or indirectly) into this repository as part of
+    # a subrepo import.
+    delete_files = {file_ for subrepo_, sha1 in delete_deps
+                     if self._isValidCommit(sha1)
+                       for file_ in self._readCommitFiles(sha1, subrepo_.prefix)}
+    # A commit's files can comprise those of multiple subrepos. That
+    # is not necessarily what we want because one of those subrepos
+    # could be imported directly in which case we do not want to
+    # delete it. So check the list of ignored files here.
+    delete_files -= ignore_files
+
+    delete_files = self.removeSubsumedFiles(delete_files)
+    pipe_cmds = self._diffAwayFiles(delete_files)
+    self._git.springWithSafeApply(pipe_cmds)
+
+
+  def commitDelete(self, subrepo, edit=False):
+    """Create a commit for a subrepo deletion."""
+    options = ["--edit"] if edit else []
+    delete_deps, _ = self._findSubreposForDeletion(subrepo)
+    # The set of dependencies includes the one we want to delete. Remove
+    # it from there as it is passed in separately to make sure it is
+    # contained at the top of the commit message.
+    delete_deps = {(subrepo_, sha1) for subrepo_, sha1 in delete_deps
+                     if subrepo_ != subrepo}
+
+    message = deleteMessageForCommit(subrepo, delete_deps)
     self._git.execute("commit", "--no-verify", "--message=%s" % message, *options)
 
 
@@ -565,7 +760,7 @@ class GitImporter:
     return self._isValidCommit("HEAD")
 
 
-  def _readCommitFiles(self, sha1):
+  def _readCommitFiles(self, sha1, prefix):
     """Given a commit, retrieve the top-level file objects contained in the state it represents."""
     out = self._git.execute("ls-tree", "%s^{tree}" % sha1)
     out = out.decode("utf-8")
@@ -577,7 +772,7 @@ class GitImporter:
         file_, = match.groups()
         files.add(file_)
 
-    return files
+    return {normpath(join(prefix, x)) for x in files}
 
 
   def _retrieveProperty(self, commit, format_):
@@ -596,42 +791,97 @@ class GitImporter:
   # This method can be rather expensive on large repositories. We cache
   # the return value in order to speed up repeated invocations.
   @lru_cache(maxsize=32)
-  def _searchImportedSubrepos(self, head_commit):
+  def _searchImportedSubrepos(self, head_commit, flat=False):
     """Find all subrepos that are imported in the history described by the given commit."""
+    def importsAndDeletions(message, regex):
+      """Extract all subrepo imports and deletions from a commit message."""
+      # Note that a message can contain multiple imports/deletions in
+      # case of nested subrepos. We want them all.
+      for line in message.splitlines():
+        match = regex.match(line)
+        if match:
+          import_prefix, import_repo, imported_commit,\
+          delete_prefix, delete_repo = match.groups()
+
+          if imported_commit is not None:
+            prefix = import_prefix
+            repo = import_repo
+          else:
+            prefix = delete_prefix
+            repo = delete_repo
+
+          # Theoretically, a remote repository can be imported multiple
+          # times (although that really should be avoided). We support
+          # this use case here by indexing with a pair of <repo, prefix>
+          # instead of just the repository name, although other parts of
+          # the program are free to prohibit such imports.
+          yield Subrepo(repo, prefix), imported_commit
+
+    def extractImports(commits, regex):
+      """Extract all subrepo imports from the given list of commits."""
+      imports = {}
+      for commit in commits:
+        message = self._retrieveMessage(commit)
+        it = importsAndDeletions(message, regex)
+        subrepo, sha1 = next(it)
+        # Ignore all subsequent import messages of subrepos that we
+        # already accounted for (with more recent commits).
+        if subrepo in imports:
+          continue
+
+        # We are interested in top-level deletions but those on a lower
+        # level have no value for us in this report.
+        # TODO: We potentially do not want to include the SHA1 of
+        #       imports at a lower level because unless we imported the
+        #       repository directly as well, there is no way to access
+        #       the commit (it simply is not known if the repository was
+        #       not added as remote repository). Problem is that for the
+        #       "flat" case we have to include the SHA1 sums at the
+        #       moment (fix this?).
+        imports[subrepo] = (sha1, [(k, v) for k, v in it if v is not None])
+
+      # We want to filter out all the deletions as they should not be
+      # visible to clients.
+      return {k: (v, d) for k, (v, d) in imports.items() if v is not None}
+
+    def extractImportsFlat(commits, regex):
+      """Extract all subrepo imports into a flat dict."""
+      imports = {}
+      for commit in commits:
+        message = self._retrieveMessage(commit)
+        for subrepo, sha1 in importsAndDeletions(message, regex):
+          if subrepo not in imports:
+            imports[subrepo] = sha1
+
+      return {k: v for k, v in imports.items() if v is not None}
+
     # For the caching to work reliably the provided commit must be a
     # SHA1 hash and not just a symbolic name.
     assert head_commit == self.resolveCommit(head_commit)
 
+    # We create a pattern that is able to match subrepo imports as well
+    # as deletions.
     component = "([^ :]+)"
     subrepo = Subrepo(component, component)
-    pattern = importMessage(subrepo, "(%s)" % SHA1_R)
+    import_pattern = importMessage(subrepo, "(%s)" % SHA1_R)
+    delete_pattern = deleteMessage(subrepo)
+    pattern = "%s|%s" % (import_pattern, delete_pattern)
 
-    out = self._git.execute("rev-list", "--extended-regexp", "--grep=^%s$" % pattern, head_commit)
+    # The git pattern match is line based, meaning we can assume the
+    # message to match starts at the beginning of the line and ends at
+    # the end.
+    out = self._git.execute("rev-list", "--extended-regexp", "--grep=^(%s)$" % pattern, head_commit)
     if out == b"":
       return {}
 
+    extract = extractImports if not flat else extractImportsFlat
     commits = out.decode("utf-8").splitlines()
-    regex = compileRe(pattern)
-
-    imports = {}
-    for commit in commits:
-      message = self._retrieveMessage(commit)
-      # Note that a message can contain multiple imports in case of nested
-      # subrepos. We want them all.
-      for match in regex.finditer(message):
-        prefix, repo, imported_commit = match.groups()
-        # Theoretically, a remote repository can be imported multiple
-        # times (although that really should be avoided). We support this
-        # use case here by indexing with a pair of <repo, prefix> instead
-        # of just the repository name, although other parts of the program
-        # are free to prohibit such imports.
-        subrepo = Subrepo(repo, prefix)
-        # We only want the SHA1 of the last import of a given remote
-        # repository.
-        if subrepo not in imports:
-          imports[subrepo] = imported_commit
-
-    return imports
+    # We match the message body line-based as well. We must not create a
+    # new matching group for the entire pattern, however, so use the
+    # '(?:XX) trickery here which is not available in git's regular
+    # expression syntax.
+    regex = compileRe("^(?:%s)$" % pattern)
+    return extract(commits, regex)
 
 
 def performImport(git, subrepo, commit, force=False, edit=False):
@@ -666,6 +916,18 @@ def performImport(git, subrepo, commit, force=False, edit=False):
   return 0
 
 
+def performDelete(git, subrepo, edit=False):
+  """Perform a subrepo deletion."""
+  if git.hasCachedChanges():
+    print("Cannot delete: Your index contains uncommitted changes.\n"
+          "Please commit or stash them.", file=stderr)
+    return 1
+
+  git.delete(subrepo)
+  git.commitDelete(subrepo, edit)
+  return 0
+
+
 def main(argv):
   """The main function interprets the arguments and acts upon them."""
   parser = setupArgumentParser()
@@ -689,17 +951,22 @@ def main(argv):
     if namespace.command == "import":
       return performImport(git, subrepo, namespace.commit,
                            force=namespace.force, edit=namespace.edit)
+    elif namespace.command == "delete":
+      return performDelete(git, subrepo, edit=namespace.edit)
     else:
       assert False
       return 1
-  except ProcessError as e:
+  except (ProcessError, SubrepoError) as e:
     if namespace.debug:
       raise
 
     print("%s" % e, file=stderr)
-    # A process failed executing so we mirror its return value.
-    assert e.status != 0
-    return e.status
+    if isinstance(e, ProcessError):
+      # A process failed executing so we mirror its return value.
+      assert e.status != 0
+      return e.status
+    else:
+      return 1
 
 
 if __name__ == "__main__":

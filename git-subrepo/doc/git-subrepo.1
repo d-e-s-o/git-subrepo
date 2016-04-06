@@ -2,12 +2,12 @@
 .\"     Title: git-subrepo
 .\"    Author: [FIXME: author] [see http://docbook.sf.net/el/author]
 .\" Generator: DocBook XSL Stylesheets v1.79.0 <http://docbook.sf.net/>
-.\"      Date: 01/02/2016
+.\"      Date: 04/05/2016
 .\"    Manual: Git Manual
 .\"    Source: Git
 .\"  Language: English
 .\"
-.TH "GIT\-SUBREPO" "1" "01/02/2016" "Git" "Git Manual"
+.TH "GIT\-SUBREPO" "1" "04/05/2016" "Git" "Git Manual"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -28,11 +28,13 @@
 .\" * MAIN CONTENT STARTS HERE *
 .\" -----------------------------------------------------------------
 .SH "NAME"
-git-subrepo \- Import a subrepo
+git-subrepo \- Subrepo management for git
 .SH "SYNOPSIS"
 .sp
 .nf
-\fIgit subrepo\fR import [\-\-debug] [\-\-edit] [\-\-force] [\-\-verbose] <remote\-repository> <prefix> <commit>
+\fIgit subrepo\fR [\-\-debug] [\-\-edit] [\-\-verbose]
+\fIgit subrepo\fR import [\-\-force] <remote\-repository> <prefix> <commit>
+\fIgit subrepo\fR delete <subrepo> <prefix>
 .fi
 .sp
 .SH "DESCRIPTION"
@@ -48,6 +50,26 @@ import
 .RS 4
 Import the given remote repository as a subrepo at the given prefix/path in the state as specified by the given commit\&. A new commit will be created in the superrepo that imports the source code\&. This command handles initial additions as well as incremental updates\&.
 .RE
+.PP
+delete
+.RS 4
+Delete a subrepo previously imported at the given prefix\&. A new commit will be created to remove the code\&. The command takes care of resolving dependencies properly\&. That is, if two subrepos,
+\fIa\fR
+and
+\fIb\fR, pull in a third one,
+\fIc\fR, deletion of either
+\fIa\fR
+or
+\fIb\fR
+will not delete
+\fIc\fR\&. Only once both subrepos
+\fIa\fR
+and
+\fIb\fR
+get removed, the last deletion will delete
+\fIc\fR
+as well\&.
+.RE
 .SH "OPTIONS"
 .PP
 <remote\-repository>
@@ -57,9 +79,14 @@ Name of a remote repository to import in the form of a subrepo\&. The remote rep
 for more details on remote repositories\&.
 .RE
 .PP
+<subrepo>
+.RS 4
+Name of a subrepo to delete\&.
+.RE
+.PP
 <prefix>
 .RS 4
-Relative path specifying where to import a subrepo\&. If code exists at the given prefix the differences to reach the desired state of the specified remote repository will be applied on top\&.
+Relative path specifying where to import a subrepo or from where to delete it\&. On import, if code exists at the given prefix the differences to reach the desired state of the specified remote repository will be applied on top\&.
 .RE
 .PP
 <commit>
@@ -293,6 +320,19 @@ $ git subrepo import lib foo/ master
 .sp
 .sp
 Now the subrepo \fIlib\fR in directory foo/ contains the most recent state of the original \fIlib\fR while the one imported into the root is still at the previous state\&.
+.sp
+During the development of our \fIapp\fR we may decide that we no longer need the version of \fIlib\fR imported below foo/\&. We could just remove the files by hand but that is cumbersome and would require manually taking care of handling dependencies correctly\&. Instead, we can delete the subrepo like so:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+$ git subrepo delete lib foo/
+.fi
+.if n \{\
+.RE
+.\}
+.sp
 .SH "GIT"
 .sp
 To be used in conjunction with the \fBgit\fR(1) suite

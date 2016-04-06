@@ -44,11 +44,15 @@ merge commit is created.
 Usage
 -----
 
-**git-subrepo** offers a single command for working with subrepos:
-'import'. An import can be used for both the initial addition of a
-subrepo as well as an incremental update. A subrepo captures the state
-of a remote repository at a specific commit. As such, the first thing to
-do is to have an up-to-date state of the remote repository of interest.
+**git-subrepo** offers two commands for working with subrepos: 'import'
+and 'delete'. An import can be used for both the initial addition of a
+subrepo as well as an incremental update. A delete removes the
+respective subrepo and its dependencies again.
+
+A subrepo captures the state of a remote repository at a specific
+commit. As such, the first thing to do is to have an up-to-date state of
+the remote repository of interest.
+
 If the remote repository is not know yet, it can be added like so:
 
 ``$ git remote add -f lib <url>``
@@ -76,6 +80,16 @@ After invocation of this command the source code below 'src/lib' will
 represent the state of 'lib' at commit 'feature'. The usual ``git``
 syntax for conveying revisions is understood as the last parameter (see
 git-rev-parse(1)).
+
+Over the lifetime of a project dependencies come and go. If a dependency
+that got imported in the form of a subrepo is no longer required, it can
+be removed. The 'delete' command takes care of the removal, like so:
+
+``$ git subrepo delete lib src/lib``
+
+After execution of this command the subrepo 'lib' which got imported
+below 'src/lib' got removed from the repository. The removal happened as
+a normal commit, so the previous state can easily be restored.
 
 
 Root Imports

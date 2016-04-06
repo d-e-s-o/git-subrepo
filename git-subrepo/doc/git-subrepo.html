@@ -739,7 +739,7 @@ git-subrepo(1) Manual Page
 <h2>NAME</h2>
 <div class="sectionbody">
 <p>git-subrepo -
-   Import a subrepo
+   Subrepo management for git
 </p>
 </div>
 </div>
@@ -748,7 +748,9 @@ git-subrepo(1) Manual Page
 <h2 id="_synopsis">SYNOPSIS</h2>
 <div class="sectionbody">
 <div class="verseblock">
-<pre class="content"><em>git subrepo</em> import [--debug] [--edit] [--force] [--verbose] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;</pre>
+<pre class="content"><em>git subrepo</em> [--debug] [--edit] [--verbose]
+<em>git subrepo</em> import [--force] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
+<em>git subrepo</em> delete &lt;subrepo&gt; &lt;prefix&gt;</pre>
 <div class="attribution">
 </div></div>
 </div>
@@ -788,6 +790,19 @@ import
   This command handles initial additions as well as incremental updates.
 </p>
 </dd>
+<dt class="hdlist1">
+delete
+</dt>
+<dd>
+<p>
+  Delete a subrepo previously imported at the given prefix. A new commit
+  will be created to remove the code. The command takes care of
+  resolving dependencies properly. That is, if two subrepos, <em>a</em> and
+  <em>b</em>, pull in a third one, <em>c</em>, deletion of either <em>a</em> or <em>b</em> will not
+  delete <em>c</em>. Only once both subrepos <em>a</em> and <em>b</em> get removed, the last
+  deletion will delete <em>c</em> as well.
+</p>
+</dd>
 </dl></div>
 </div>
 </div>
@@ -807,13 +822,22 @@ import
 </p>
 </dd>
 <dt class="hdlist1">
+&lt;subrepo&gt;
+</dt>
+<dd>
+<p>
+  Name of a subrepo to delete.
+</p>
+</dd>
+<dt class="hdlist1">
 &lt;prefix&gt;
 </dt>
 <dd>
 <p>
-  Relative path specifying where to import a subrepo. If code exists at
-  the given prefix the differences to reach the desired state of the
-  specified remote repository will be applied on top.
+  Relative path specifying where to import a subrepo or from where to
+  delete it. On import, if code exists at the given prefix the
+  differences to reach the desired state of the specified remote
+  repository will be applied on top.
 </p>
 </dd>
 <dt class="hdlist1">
@@ -1048,6 +1072,15 @@ $ git subrepo import lib foo/ master</code></pre>
 <div class="paragraph"><p>Now the subrepo <em>lib</em> in directory foo/ contains the most recent state
 of the original <em>lib</em> while the one imported into the root is still at
 the previous state.</p></div>
+<div class="paragraph"><p>During the development of our <em>app</em> we may decide that we no longer need
+the version of <em>lib</em> imported below foo/. We could just remove the files
+by hand but that is cumbersome and would require manually taking care of
+handling dependencies correctly. Instead, we can delete the subrepo like
+so:</p></div>
+<div class="listingblock">
+<div class="content">
+<pre><code>$ git subrepo delete lib foo/</code></pre>
+</div></div>
 </div>
 </div>
 <div class="sect1">
@@ -1060,7 +1093,7 @@ the previous state.</p></div>
 <div id="footnotes"><hr /></div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2016-01-02 22:35:09 PST
+Last updated 2016-04-05 22:34:03 PDT
 </div>
 </div>
 </body>

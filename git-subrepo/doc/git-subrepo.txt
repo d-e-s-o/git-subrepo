@@ -3,13 +3,15 @@ git-subrepo(1)
 
 NAME
 ----
-git-subrepo - Import a subrepo
+git-subrepo - Subrepo management for git
 
 
 SYNOPSIS
 --------
 [verse]
-'git subrepo' import [--debug] [--edit] [--force] [--verbose] <remote-repository> <prefix> <commit>
+'git subrepo' [--debug] [--edit] [--verbose]
+'git subrepo' import [--force] <remote-repository> <prefix> <commit>
+'git subrepo' delete <subrepo> <prefix>
 
 
 DESCRIPTION
@@ -40,6 +42,14 @@ import::
   commit will be created in the superrepo that imports the source code.
   This command handles initial additions as well as incremental updates.
 
+delete::
+  Delete a subrepo previously imported at the given prefix. A new commit
+  will be created to remove the code. The command takes care of
+  resolving dependencies properly. That is, if two subrepos, 'a' and
+  'b', pull in a third one, 'c', deletion of either 'a' or 'b' will not
+  delete 'c'. Only once both subrepos 'a' and 'b' get removed, the last
+  deletion will delete 'c' as well.
+
 OPTIONS
 -------
 <remote-repository>::
@@ -48,10 +58,14 @@ OPTIONS
   known locally. Please refer to linkgit:git-remote[1] for more details
   on remote repositories.
 
+<subrepo>::
+  Name of a subrepo to delete.
+
 <prefix>::
-  Relative path specifying where to import a subrepo. If code exists at
-  the given prefix the differences to reach the desired state of the
-  specified remote repository will be applied on top.
+  Relative path specifying where to import a subrepo or from where to
+  delete it. On import, if code exists at the given prefix the
+  differences to reach the desired state of the specified remote
+  repository will be applied on top.
 
 <commit>::
   Commit representing the state at which to import the given remote
@@ -248,6 +262,16 @@ $ git subrepo import lib foo/ master
 Now the subrepo 'lib' in directory foo/ contains the most recent state
 of the original 'lib' while the one imported into the root is still at
 the previous state.
+
+During the development of our 'app' we may decide that we no longer need
+the version of 'lib' imported below foo/. We could just remove the files
+by hand but that is cumbersome and would require manually taking care of
+handling dependencies correctly. Instead, we can delete the subrepo like
+so:
+
+------------
+$ git subrepo delete lib foo/
+------------
 
 GIT
 ---
