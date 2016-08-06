@@ -62,6 +62,7 @@ from unittest import (
 )
 
 
+TRUE = findCommand("true")
 GIT = findCommand("git")
 GIT_SUBREPO = realpath(join(dirname(__file__), pardir, "git-subrepo.py"))
 
@@ -95,6 +96,24 @@ class GitRepository(PathMixin, PythonMixin, Repository):
     """Retrieve the commit message of a commit."""
     out, _ = self.show("--no-patch", "--format=format:%B", commit, stdout=b"")
     return out.decode("utf-8")
+
+
+  def amend(self):
+    """Amend the current HEAD commit to include all the staged changes."""
+    self.git("commit", "--amend", "--reuse-message=HEAD")
+
+
+  @Repository.autoChangeDir
+  def reimport(self, commit):
+    """Reimport all subrepos found."""
+    # In order for an interactive rebase operation to work in our
+    # non-interactive test we simply skip the editor part by setting it
+    # to /bin/true. A cleaner way might be some git-filter-branch
+    # invocation but since we rarely use that in real-world workflows
+    # and because it is more complex to employ we stay with rebase.
+    env = {"GIT_EDITOR": TRUE}
+    cmd = " ".join([executable, GIT_SUBREPO, "reimport"])
+    self.rebase("--interactive", "--keep-empty", "--exec=%s" % cmd, commit, env=env)
 
 
   @Repository.autoChangeDir
@@ -721,6 +740,92 @@ class TestGitSubrepo(TestCase):
 
       self.assertIn("import subrepo src-r2/:r2 at ", r1.message("HEAD"))
       self.assertIn("import subrepo src-r2/src-r3/:r3 at ", r1.message("HEAD"))
+
+
+  def testReimport(self):
+    """Verify that we can reimport a subrepo."""
+    with GitRepository() as lib,\
+         GitRepository() as app:
+      # Let's create an initial (empty) commit and tag it so that later
+      # on we can rebase easier.
+      lib.commit("--allow-empty")
+      lib.tag("init", "master")
+
+      # Now create some actual content.
+      write(lib, "test.txt", data="test")
+      lib.add("test.txt")
+      lib.commit()
+      sha1 = lib.revParse("HEAD")
+
+      # Import 'lib' as a subrepo.
+      app.remote("add", "--fetch", "lib", lib.path())
+      app.subrepo("import", "lib", ".", "master")
+
+      self.assertEqual(read(app, "test.txt"), "test")
+      self.assertIn(sha1, app.message("HEAD"))
+
+      # Now change the latest commit in 'lib'.
+      write(lib, "test.txt", data="data")
+      lib.add("test.txt")
+      lib.amend()
+      sha1 = lib.revParse("HEAD")
+
+      # Last but not least reimport the subrepo. It should contain the
+      # latest changes afterwards.
+      app.fetch("lib")
+      app.reimport("init")
+
+      self.assertEqual(read(app, "test.txt"), "data")
+      self.assertIn(sha1, app.message("HEAD"))
+
+
+  def testReimportCwdInPrefix(self):
+    """Verify that we can reimport a subrepo while residing in the respective prefix directory."""
+    def reimport():
+      """Reimport the subrepo imported at HEAD."""
+      env = {}
+      PathMixin.inheritEnv(env)
+      PythonMixin.inheritEnv(env)
+
+      execute(executable, GIT_SUBREPO, "reimport", env=env)
+
+    def doTest(prefix):
+      """Perform a reimport with the current working directory inside the subrepo path."""
+      with GitRepository() as repo1,\
+           GitRepository() as repo2:
+        data = "".join(chr(randint(0, 255)) for _ in range(512))
+        mkdir(repo1.path("dat"))
+        write(repo1, join("dat", "file.bin"), data=data)
+        repo1.add(join("dat", "file.bin"))
+        repo1.commit()
+
+        # Import 'repo1' as a subrepo.
+        repo2.remote("add", "--fetch", "repo1", repo1.path())
+        repo2.subrepo("import", "repo1", prefix, "master")
+
+        file_ = join(prefix, "dat", "file.bin")
+        self.assertEqual(read(repo2, file_), read(repo1, "dat", "file.bin"))
+
+        data = "".join(chr(randint(0, 255)) for _ in range(512))
+        write(repo1, join("dat", "file.bin"), data=data)
+        repo1.add(join("dat", "file.bin"))
+        repo1.amend()
+
+        self.assertNotEqual(read(repo2, file_), read(repo1, "dat", "file.bin"))
+        repo2.fetch("repo1")
+
+        cwd = getcwd()
+        chdir(repo2.path(prefix, "dat"))
+        try:
+          # Reimport the subrepo imported at HEAD.
+          reimport()
+        finally:
+          chdir(cwd)
+
+        self.assertEqual(read(repo2, file_), read(repo1, "dat", "file.bin"))
+
+    doTest(".")
+    doTest("dir")
 
 
   def testSubrepoDelete(self):

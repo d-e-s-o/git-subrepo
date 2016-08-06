@@ -751,6 +751,7 @@ git-subrepo(1) Manual Page
 <pre class="content"><em>git subrepo</em> [--debug] [--verbose]
 <em>git subrepo</em> import [--edit] [--force] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
 <em>git subrepo</em> delete [--edit] &lt;subrepo&gt; &lt;prefix&gt;
+<em>git subrepo</em> reimport &lt;subrepo&gt; &lt;prefix&gt;
 <em>git subrepo</em> tree</pre>
 <div class="attribution">
 </div></div>
@@ -802,6 +803,23 @@ delete
   <em>b</em>, pull in a third one, <em>c</em>, deletion of either <em>a</em> or <em>b</em> will not
   delete <em>c</em>. Only once both subrepos <em>a</em> and <em>b</em> get removed, the last
   deletion will delete <em>c</em> as well.
+</p>
+</dd>
+<dt class="hdlist1">
+reimport
+</dt>
+<dd>
+<p>
+  Check whether current <em>HEAD</em> commit is a subrepo import and, if so,
+  check whether a newer version of the imported commit can be found. If
+  that is the case then reimport the remote repository at this new
+  state. Matching of commits is performed based on the subject line of
+  the commit description.
+  This command is useful if imported remote repositories are rebased
+  remotely. If the new state is to be imported not as a separate new
+  commit but by amending the original import commit, this command takes
+  care of importing the updated source code and adjusting the import
+  commit message.
 </p>
 </dd>
 <dt class="hdlist1">
@@ -1091,6 +1109,15 @@ the previous state.</p></div>
 <div class="paragraph"><p>The output illustrates that the remote repository <em>lib</em> has been
 imported at two prefixes, the root of the repository and the directory
 foo/. It also depicts the commit at which the import happened.</p></div>
+<div class="paragraph"><p>There are cases possible where the history of <em>lib</em> is (partly)
+rewritten. For instance, imagine that the commits have not been
+published anywhere because development is still going on in private and
+a bug was found and fixed. Updating the imports of <em>lib</em> in <em>app</em> can
+happen using the reimport command. For example:</p></div>
+<div class="listingblock">
+<div class="content">
+<pre><code>$ git rebase --interactive HEAD^^^ --exec='git subrepo reimport'</code></pre>
+</div></div>
 <div class="paragraph"><p>During the development of our <em>app</em> we may decide that we no longer need
 the version of <em>lib</em> imported below foo/. We could just remove the files
 by hand but that is cumbersome and would require manually taking care of
@@ -1112,7 +1139,7 @@ so:</p></div>
 <div id="footnotes"><hr /></div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2016-04-05 22:47:25 PDT
+Last updated 2016-08-06 15:07:47 PDT
 </div>
 </div>
 </body>

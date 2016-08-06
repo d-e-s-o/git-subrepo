@@ -90,6 +90,21 @@ The output illustrates that the remote repository 'lib' has been
 imported at a prefix src/lib within the repository. It also depicts the
 commit at which the import happened.
 
+If development crosses multiple repositories, managed in the form of
+subrepos, it might become necessary to rebase one of the dependencies
+and then update the respective subrepo. To aid with the latter part of
+the workflow, **git-subrepo** provides the 'reimport' command that
+checks if the 'HEAD' commit is a subrepo import and, if so, updates the
+subrepo by importing the new state of the remote repository. Typically,
+it is used during an interactive rebase operation:
+
+``$ git rebase --interactive --exec='git subrepo reimport' HEAD^^^``
+
+This command checks each of the top three commits whether it is a
+subrepo import and updates the source code by reimporting it. Matching
+of commits happens based on the subject, i.e., the topmost line in the
+commit message.
+
 Over the lifetime of a project dependencies come and go. If a dependency
 that got imported in the form of a subrepo is no longer required, it can
 be removed. The 'delete' command takes care of the removal, like so:

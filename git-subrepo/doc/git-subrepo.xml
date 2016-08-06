@@ -17,6 +17,7 @@
 <literallayout><emphasis>git subrepo</emphasis> [--debug] [--verbose]
 <emphasis>git subrepo</emphasis> import [--edit] [--force] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
 <emphasis>git subrepo</emphasis> delete [--edit] &lt;subrepo&gt; &lt;prefix&gt;
+<emphasis>git subrepo</emphasis> reimport &lt;subrepo&gt; &lt;prefix&gt;
 <emphasis>git subrepo</emphasis> tree</literallayout>
 <simpara></simpara>
 </refsynopsisdiv>
@@ -70,6 +71,25 @@ delete
   <emphasis>b</emphasis>, pull in a third one, <emphasis>c</emphasis>, deletion of either <emphasis>a</emphasis> or <emphasis>b</emphasis> will not
   delete <emphasis>c</emphasis>. Only once both subrepos <emphasis>a</emphasis> and <emphasis>b</emphasis> get removed, the last
   deletion will delete <emphasis>c</emphasis> as well.
+</simpara>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+reimport
+</term>
+<listitem>
+<simpara>
+  Check whether current <emphasis>HEAD</emphasis> commit is a subrepo import and, if so,
+  check whether a newer version of the imported commit can be found. If
+  that is the case then reimport the remote repository at this new
+  state. Matching of commits is performed based on the subject line of
+  the commit description.
+  This command is useful if imported remote repositories are rebased
+  remotely. If the new state is to be imported not as a separate new
+  commit but by amending the original import commit, this command takes
+  care of importing the updated source code and adjusting the import
+  commit message.
 </simpara>
 </listitem>
 </varlistentry>
@@ -335,6 +355,12 @@ the previous state.</simpara>
 <simpara>The output illustrates that the remote repository <emphasis>lib</emphasis> has been
 imported at two prefixes, the root of the repository and the directory
 foo/. It also depicts the commit at which the import happened.</simpara>
+<simpara>There are cases possible where the history of <emphasis>lib</emphasis> is (partly)
+rewritten. For instance, imagine that the commits have not been
+published anywhere because development is still going on in private and
+a bug was found and fixed. Updating the imports of <emphasis>lib</emphasis> in <emphasis>app</emphasis> can
+happen using the reimport command. For example:</simpara>
+<literallayout class="monospaced">$ git rebase --interactive HEAD^^^ --exec='git subrepo reimport'</literallayout><simpara></simpara>
 <simpara>During the development of our <emphasis>app</emphasis> we may decide that we no longer need
 the version of <emphasis>lib</emphasis> imported below foo/. We could just remove the files
 by hand but that is cumbersome and would require manually taking care of

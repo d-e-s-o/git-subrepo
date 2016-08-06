@@ -68,6 +68,8 @@ from tempfile import (
 GIT = findCommand("git")
 ECHO = findCommand("echo")
 REPO_STR = "{prefix}:{repo}"
+PREFIX_R = r"([^:\n]+)"
+REPO_R = r"([^ \n]+)"
 IMPORT_MSG = "import subrepo %s at {sha1}" % REPO_STR
 DELETE_MSG = "delete subrepo %s" % REPO_STR
 # A meant-to-be regular expression matching no whitespaces.
@@ -81,6 +83,8 @@ FILE_R = ".+"
 # A regular expression matching a SHA1 hash. A SHA1 checksum is
 # comprised of 40 hexadecimal characters.
 SHA1_R = "[a-z0-9]{40}"
+IMPORT_MSG_R = IMPORT_MSG.format(prefix=PREFIX_R, repo=REPO_R, sha1="(%s)" % SHA1_R)
+IMPORT_MSG_RE = compileRe(r"^%s$" % IMPORT_MSG_R)
 # As per git-ls-tree(1) each line has the following format:
 # <mode> SP <type> SP <object> TAB <file>
 LS_TREE = "{nows} {type} {nows}\t({file})$"
@@ -104,6 +108,11 @@ class DependencyError(SubrepoError):
 
 class DeletionError(SubrepoError):
   """A class used for signaling problems in deleting a repository."""
+  pass
+
+
+class ReimportError(SubrepoError):
+  """A class used for signaling problems in reimporting a repository."""
   pass
 
 
@@ -270,7 +279,7 @@ def addStandardArgs(parser):
   )
 
 
-def addOptionalArgs(parser, delete=False, tree=False):
+def addOptionalArgs(parser, reimport=False, delete=False, tree=False):
   """Add optional arguments to the argument parser."""
   parser.add_argument(
     "-d", "--debug", action="store_true", default=False, dest="debug",
@@ -282,7 +291,7 @@ def addOptionalArgs(parser, delete=False, tree=False):
       "-e", "--edit", action="store_true", default=False, dest="edit",
       help="Open up an editor to allow for editing the commit message.",
     )
-  if not delete and not tree:
+  if not reimport and not delete and not tree:
     parser.add_argument(
       "-f", "--force", action="store_true", default=False, dest="force",
       help="Force import of a subrepo at a given state even if the commit "
@@ -322,6 +331,18 @@ def addImportParser(parser):
 
   optional = import_.add_argument_group("Optional arguments")
   addOptionalArgs(optional)
+  addStandardArgs(optional)
+
+
+def addReimportParser(parser):
+  """Add a parser for the 'reimport' command to another parser."""
+  reimport = parser.add_parser(
+    "reimport", add_help=False, formatter_class=SubLevelHelpFormatter,
+    help="Reimport a subrepo.",
+  )
+
+  optional = reimport.add_argument_group("Optional arguments")
+  addOptionalArgs(optional, reimport=True)
   addStandardArgs(optional)
 
 
@@ -374,6 +395,7 @@ def setupArgumentParser():
   addStandardArgs(optional)
 
   addImportParser(subparsers)
+  addReimportParser(subparsers)
   addDeleteParser(subparsers)
   addTreeParser(subparsers)
   return parser
@@ -613,12 +635,63 @@ class GitImporter:
     self._git.springWithSafeApply(pipe_cmds)
 
 
+  def reimport(self):
+    """Attempt to reimport the import at the current HEAD, if any."""
+    old_message = self._retrieveMessage("HEAD")
+    match = IMPORT_MSG_RE.match(old_message)
+    if match is not None:
+      prefix, repo, old_commit = match.groups()
+
+      subject = self._retrieveSubject(old_commit)
+      new_commits = self._findCommitsBySubject(repo, subject)
+      count = len(new_commits)
+      if count != 1:
+        if count < 1:
+          msg = "Found no commits matching subject \"{sub}\""
+        else:
+          msg = "Found {cnt} commits matching subject \"{sub}\":\n{commits}"
+
+        # Note that it is safe to supply arguments that are not contained
+        # in the string -- they will simply be ignored.
+        msg = msg.format(cnt=count, sub=subject, commits="\n".join(new_commits))
+        raise ReimportError(msg)
+
+      new_commit, = new_commits
+      if new_commit != old_commit:
+        new_message = replaceCommit(old_message, old_commit, new_commit)
+        # Reimport the subrepo at a new commit. The incremental changes
+        # (if any) will be staged, not committed yet.
+        self.import_(Subrepo(repo, prefix), new_commit)
+        # We amend the HEAD commit with the newly staged changes. We also
+        # adjust the message to reference the correct new commit that we
+        # updated to.
+        self.amendCommit(new_message)
+
+
   def commitImport(self, subrepo, sha1, edit=False):
     """Create a commit for an import."""
     options = ["--edit"] if edit else []
     imports = self._searchImportedSubrepos(sha1, flat=True)
     message = importMessageForCommit(subrepo, sha1, imports)
     self._git.execute("commit", "--no-verify", "--message=%s" % message, *options)
+
+
+  def amendCommit(self, message):
+    """Amend the HEAD commit with the currently staged changes."""
+    self._git.execute("commit", "--amend", "--no-verify", "--message=%s" % message)
+
+
+  def _findCommitsBySubject(self, repo, subject):
+    """Given a subject line, find all matching commits."""
+    args = [
+      "--remotes=%s" % repo,
+      "--grep=^%s$" % subject,
+      "HEAD",
+    ]
+
+    out = self._git.execute("rev-list", *args)
+    commits = out.decode("utf-8").splitlines()
+    return list(filter(lambda x: x.strip() != "", commits))
 
 
   def _findSubreposForDeletion(self, subrepo):
@@ -795,6 +868,12 @@ class GitImporter:
     return out.decode("utf-8")
 
 
+  def _retrieveSubject(self, commit):
+    """Retrieve the subject line of the given commit."""
+    # %s in a git format string represents the subject line.
+    return self._retrieveProperty(commit, "s")
+
+
   def _retrieveMessage(self, commit):
     """Retrieve the message (description) of the given commit."""
     # %B in a git format string represents the raw description, containing
@@ -898,6 +977,19 @@ class GitImporter:
     return extract(commits, regex)
 
 
+def replaceCommit(message, old_commit, new_commit):
+  """Replace one SHA1 hash in a git-subrepo import commit message with another."""
+  # We consider it safe to just do a replace over the entire message (as
+  # oppossed to creating a regular expression matching only the import
+  # line and then replacing the commit only in this very line). The
+  # commit should not be contained in it in something else than the
+  # import line.
+  new_message = message.replace(old_commit, new_commit)
+  # Check that we really only made one replacement.
+  assert new_message == message.replace(old_commit, new_commit, 1)
+  return new_message
+
+
 def performImport(git, subrepo, commit, force=False, edit=False):
   """Perform a subrepo import."""
   # If the user has cached changes we do not continue as they would be
@@ -927,6 +1019,17 @@ def performImport(git, subrepo, commit, force=False, edit=False):
     return 1
 
   git.commitImport(subrepo, sha1, edit)
+  return 0
+
+
+def performReimport(git):
+  """Perform a subrepo reimport, if necessary."""
+  if git.hasCachedChanges():
+    print("Cannot import: Your index contains uncommitted changes.\n"
+          "Please commit or stash them.", file=stderr)
+    return 1
+
+  git.reimport()
   return 0
 
 
@@ -996,7 +1099,7 @@ def main(argv):
   """The main function interprets the arguments and acts upon them."""
   parser = setupArgumentParser()
   namespace = parser.parse_args(argv[1:])
-  if namespace.command != "tree":
+  if namespace.command not in ["reimport", "tree"]:
     repo = getattr(namespace, "remote-repository")
 
   try:
@@ -1008,7 +1111,7 @@ def main(argv):
     # repository's root. If we did nothing here git would always treat the
     # prefix relative to the root directory which would result in
     # unexpected behavior.
-    if namespace.command != "tree":
+    if namespace.command not in ["reimport", "tree"]:
       prefix = relpath(namespace.prefix)
       prefix = relpath(prefix, start=git.root)
       prefix = trail(prefix)
@@ -1017,6 +1120,8 @@ def main(argv):
     if namespace.command == "import":
       return performImport(git, subrepo, namespace.commit,
                            force=namespace.force, edit=namespace.edit)
+    elif namespace.command == "reimport":
+      return performReimport(git)
     elif namespace.command == "delete":
       return performDelete(git, subrepo, edit=namespace.edit)
     elif namespace.command == "tree":

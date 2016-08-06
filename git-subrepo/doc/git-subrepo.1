@@ -2,12 +2,12 @@
 .\"     Title: git-subrepo
 .\"    Author: [FIXME: author] [see http://docbook.sf.net/el/author]
 .\" Generator: DocBook XSL Stylesheets v1.79.0 <http://docbook.sf.net/>
-.\"      Date: 04/05/2016
+.\"      Date: 08/06/2016
 .\"    Manual: Git Manual
 .\"    Source: Git
 .\"  Language: English
 .\"
-.TH "GIT\-SUBREPO" "1" "04/05/2016" "Git" "Git Manual"
+.TH "GIT\-SUBREPO" "1" "08/06/2016" "Git" "Git Manual"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -35,6 +35,7 @@ git-subrepo \- Subrepo management for git
 \fIgit subrepo\fR [\-\-debug] [\-\-verbose]
 \fIgit subrepo\fR import [\-\-edit] [\-\-force] <remote\-repository> <prefix> <commit>
 \fIgit subrepo\fR delete [\-\-edit] <subrepo> <prefix>
+\fIgit subrepo\fR reimport <subrepo> <prefix>
 \fIgit subrepo\fR tree
 .fi
 .sp
@@ -70,6 +71,13 @@ and
 get removed, the last deletion will delete
 \fIc\fR
 as well\&.
+.RE
+.PP
+reimport
+.RS 4
+Check whether current
+\fIHEAD\fR
+commit is a subrepo import and, if so, check whether a newer version of the imported commit can be found\&. If that is the case then reimport the remote repository at this new state\&. Matching of commits is performed based on the subject line of the commit description\&. This command is useful if imported remote repositories are rebased remotely\&. If the new state is to be imported not as a separate new commit but by amending the original import commit, this command takes care of importing the updated source code and adjusting the import commit message\&.
 .RE
 .PP
 tree
@@ -343,6 +351,19 @@ $ git subrepo tree
 .sp
 .sp
 The output illustrates that the remote repository \fIlib\fR has been imported at two prefixes, the root of the repository and the directory foo/\&. It also depicts the commit at which the import happened\&.
+.sp
+There are cases possible where the history of \fIlib\fR is (partly) rewritten\&. For instance, imagine that the commits have not been published anywhere because development is still going on in private and a bug was found and fixed\&. Updating the imports of \fIlib\fR in \fIapp\fR can happen using the reimport command\&. For example:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+$ git rebase \-\-interactive HEAD^^^ \-\-exec=\*(Aqgit subrepo reimport\*(Aq
+.fi
+.if n \{\
+.RE
+.\}
+.sp
 .sp
 During the development of our \fIapp\fR we may decide that we no longer need the version of \fIlib\fR imported below foo/\&. We could just remove the files by hand but that is cumbersome and would require manually taking care of handling dependencies correctly\&. Instead, we can delete the subrepo like so:
 .sp
