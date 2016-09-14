@@ -98,9 +98,14 @@ class GitRepository(PathMixin, PythonMixin, Repository):
     return out.decode("utf-8")
 
 
-  def amend(self):
+  def amend(self, message=None):
     """Amend the current HEAD commit to include all the staged changes."""
-    self.git("commit", "--amend", "--reuse-message=HEAD")
+    if message is None:
+      message = "--reuse-message=HEAD"
+    else:
+      message = "--message=%s" % message
+
+    self.git("commit", "--amend", message)
 
 
   @Repository.autoChangeDir
@@ -742,8 +747,8 @@ class TestGitSubrepo(TestCase):
       self.assertIn("import subrepo src-r2/src-r3/:r3 at ", r1.message("HEAD"))
 
 
-  def testReimport(self):
-    """Verify that we can reimport a subrepo."""
+  def performReimportTest(self, test_func):
+    """Run a test function on a small subrepo scaffolding."""
     with GitRepository() as lib,\
          GitRepository() as app:
       # Let's create an initial (empty) commit and tag it so that later
@@ -764,6 +769,13 @@ class TestGitSubrepo(TestCase):
       self.assertEqual(read(app, "test.txt"), "test")
       self.assertIn(sha1, app.message("HEAD"))
 
+      test_func(lib, app)
+
+
+  def testReimportAmendedRemote(self):
+    """Verify that we can properly reimport a subrepo with an amended HEAD commit."""
+    def amendRemote(lib, app):
+      """Amend the HEAD commit in the 'lib' repository and try reimporting it."""
       # Now change the latest commit in 'lib'.
       write(lib, "test.txt", data="data")
       lib.add("test.txt")
@@ -777,6 +789,39 @@ class TestGitSubrepo(TestCase):
 
       self.assertEqual(read(app, "test.txt"), "data")
       self.assertIn(sha1, app.message("HEAD"))
+
+    self.performReimportTest(amendRemote)
+
+
+  def testReimportWithAdditionalChange(self):
+    """Verify that reimports respect additional, local changes."""
+    def extendedImport(lib, app):
+      """Amend a subrepo import to add an additional file and test reimport."""
+      # The most recent commit in the 'app' repository is an import. We
+      # want to include some additional changes in it and make the
+      # import message be contained in the body, not the subject line.
+      write(app, "file.txt", data="file")
+      app.add("file.txt")
+
+      message = "add file.txt\n\n%s" % app.message("HEAD")
+      app.amend(message)
+
+      # Change the latest commit in 'lib' to force a reimport to happen.
+      write(lib, "test.txt", data="newdata")
+      lib.add("test.txt")
+      lib.amend()
+
+      # Reimport the subrepo.
+      app.fetch("lib")
+      app.reimport("init")
+
+      self.assertEqual(read(app, "file.txt"), "file")
+      self.assertEqual(read(app, "test.txt"), "newdata")
+
+      expected = "add file.txt\n\nimport subrepo"
+      self.assertIn(expected, app.message("HEAD"))
+
+    self.performReimportTest(extendedImport)
 
 
   def testReimportCwdInPrefix(self):

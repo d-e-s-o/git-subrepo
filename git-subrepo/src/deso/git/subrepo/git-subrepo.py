@@ -84,7 +84,7 @@ FILE_R = ".+"
 # comprised of 40 hexadecimal characters.
 SHA1_R = "[a-z0-9]{40}"
 IMPORT_MSG_R = IMPORT_MSG.format(prefix=PREFIX_R, repo=REPO_R, sha1="(%s)" % SHA1_R)
-IMPORT_MSG_RE = compileRe(r"^%s$" % IMPORT_MSG_R)
+IMPORT_MSG_RE = compileRe(r"%s" % IMPORT_MSG_R)
 # As per git-ls-tree(1) each line has the following format:
 # <mode> SP <type> SP <object> TAB <file>
 LS_TREE = "{nows} {type} {nows}\t({file})$"
@@ -638,7 +638,7 @@ class GitImporter:
   def reimport(self):
     """Attempt to reimport the import at the current HEAD, if any."""
     old_message = self._retrieveMessage("HEAD")
-    match = IMPORT_MSG_RE.match(old_message)
+    match = IMPORT_MSG_RE.search(old_message)
     if match is not None:
       prefix, repo, old_commit = match.groups()
 
