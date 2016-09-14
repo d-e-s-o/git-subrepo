@@ -342,6 +342,11 @@ def addReimportParser(parser):
   )
 
   optional = reimport.add_argument_group("Optional arguments")
+  optional.add_argument(
+    "-b", "--branch", action="store", default=None,
+    help="Specify a branch in which to look for \"newer\" commits.",
+  )
+
   addOptionalArgs(optional, reimport=True)
   addStandardArgs(optional)
 
@@ -635,7 +640,7 @@ class GitImporter:
     self._git.springWithSafeApply(pipe_cmds)
 
 
-  def reimport(self):
+  def reimport(self, branch=None):
     """Attempt to reimport the import at the current HEAD, if any."""
     old_message = self._retrieveMessage("HEAD")
     match = IMPORT_MSG_RE.search(old_message)
@@ -643,7 +648,7 @@ class GitImporter:
       prefix, repo, old_commit = match.groups()
 
       subject = self._retrieveSubject(old_commit)
-      new_commits = self._findCommitsBySubject(repo, subject)
+      new_commits = self._findCommitsBySubject(repo, subject, branch=branch)
       count = len(new_commits)
       if count != 1:
         if count < 1:
@@ -681,10 +686,20 @@ class GitImporter:
     self._git.execute("commit", "--amend", "--no-verify", "--message=%s" % message)
 
 
-  def _findCommitsBySubject(self, repo, subject):
+  def _findCommitsBySubject(self, repo, subject, branch=None):
     """Given a subject line, find all matching commits."""
+    if branch is not None:
+      # Note that unless the --remotes parameter's pattern contains some
+      # sort of wildcard it will implicitly be converted into one by
+      # appending "/*" at the end. We want an exact match of the branch
+      # and so we explicitly make a wild card of it by placing the last
+      # letter of the branch into square brackets.
+      pattern = "%s/%s[%s]" % (repo, branch[:-1], branch[-1])
+    else:
+      pattern = repo
+
     args = [
-      "--remotes=%s" % repo,
+      "--remotes=%s" % pattern,
       "--grep=^%s$" % subject,
       "HEAD",
     ]
@@ -1022,14 +1037,14 @@ def performImport(git, subrepo, commit, force=False, edit=False):
   return 0
 
 
-def performReimport(git):
+def performReimport(git, branch=None):
   """Perform a subrepo reimport, if necessary."""
   if git.hasCachedChanges():
     print("Cannot import: Your index contains uncommitted changes.\n"
           "Please commit or stash them.", file=stderr)
     return 1
 
-  git.reimport()
+  git.reimport(branch=branch)
   return 0
 
 
@@ -1121,7 +1136,7 @@ def main(argv):
       return performImport(git, subrepo, namespace.commit,
                            force=namespace.force, edit=namespace.edit)
     elif namespace.command == "reimport":
-      return performReimport(git)
+      return performReimport(git, namespace.branch)
     elif namespace.command == "delete":
       return performDelete(git, subrepo, edit=namespace.edit)
     elif namespace.command == "tree":

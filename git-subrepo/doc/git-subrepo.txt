@@ -12,7 +12,7 @@ SYNOPSIS
 'git subrepo' [--debug] [--verbose]
 'git subrepo' import [--edit] [--force] <remote-repository> <prefix> <commit>
 'git subrepo' delete [--edit] <subrepo> <prefix>
-'git subrepo' reimport <subrepo> <prefix>
+'git subrepo' reimport [--branch=<branch>] <subrepo> <prefix>
 'git subrepo' tree
 
 
@@ -87,6 +87,16 @@ OPTIONS
 <commit>::
   Commit representing the state at which to import the given remote
   repository as a subrepo or to which to update the given subrepo to.
+
+-b::
+--branch::
+  When performing a reimport, matching commits (those with the same
+  subject line as the imported commit) are searched across branches.
+  That is, if there are multiple branches containing two equally worded
+  commits with different SHA-1 hashes, both will be found leading to the
+  reimport to be ambiguous and, hence, aborted. To pick a commit from
+  one of the branches this option followed by the branch name can be
+  used.
 
 -d::
 --debug::

@@ -17,7 +17,7 @@
 <literallayout><emphasis>git subrepo</emphasis> [--debug] [--verbose]
 <emphasis>git subrepo</emphasis> import [--edit] [--force] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
 <emphasis>git subrepo</emphasis> delete [--edit] &lt;subrepo&gt; &lt;prefix&gt;
-<emphasis>git subrepo</emphasis> reimport &lt;subrepo&gt; &lt;prefix&gt;
+<emphasis>git subrepo</emphasis> reimport [--branch=&lt;branch&gt;] &lt;subrepo&gt; &lt;prefix&gt;
 <emphasis>git subrepo</emphasis> tree</literallayout>
 <simpara></simpara>
 </refsynopsisdiv>
@@ -154,6 +154,25 @@ tree
 <simpara>
   Commit representing the state at which to import the given remote
   repository as a subrepo or to which to update the given subrepo to.
+</simpara>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+-b
+</term>
+<term>
+--branch
+</term>
+<listitem>
+<simpara>
+  When performing a reimport, matching commits (those with the same
+  subject line as the imported commit) are searched across branches.
+  That is, if there are multiple branches containing two equally worded
+  commits with different SHA-1 hashes, both will be found leading to the
+  reimport to be ambiguous and, hence, aborted. To pick a commit from
+  one of the branches this option followed by the branch name can be
+  used.
 </simpara>
 </listitem>
 </varlistentry>

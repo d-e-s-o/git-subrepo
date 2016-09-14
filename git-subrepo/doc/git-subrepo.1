@@ -2,12 +2,12 @@
 .\"     Title: git-subrepo
 .\"    Author: [FIXME: author] [see http://docbook.sf.net/el/author]
 .\" Generator: DocBook XSL Stylesheets v1.79.0 <http://docbook.sf.net/>
-.\"      Date: 08/06/2016
+.\"      Date: 09/13/2016
 .\"    Manual: Git Manual
 .\"    Source: Git
 .\"  Language: English
 .\"
-.TH "GIT\-SUBREPO" "1" "08/06/2016" "Git" "Git Manual"
+.TH "GIT\-SUBREPO" "1" "09/13/2016" "Git" "Git Manual"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -35,7 +35,7 @@ git-subrepo \- Subrepo management for git
 \fIgit subrepo\fR [\-\-debug] [\-\-verbose]
 \fIgit subrepo\fR import [\-\-edit] [\-\-force] <remote\-repository> <prefix> <commit>
 \fIgit subrepo\fR delete [\-\-edit] <subrepo> <prefix>
-\fIgit subrepo\fR reimport <subrepo> <prefix>
+\fIgit subrepo\fR reimport [\-\-branch=<branch>] <subrepo> <prefix>
 \fIgit subrepo\fR tree
 .fi
 .sp
@@ -106,6 +106,11 @@ Relative path specifying where to import a subrepo or from where to delete it\&.
 <commit>
 .RS 4
 Commit representing the state at which to import the given remote repository as a subrepo or to which to update the given subrepo to\&.
+.RE
+.PP
+\-b, \-\-branch
+.RS 4
+When performing a reimport, matching commits (those with the same subject line as the imported commit) are searched across branches\&. That is, if there are multiple branches containing two equally worded commits with different SHA\-1 hashes, both will be found leading to the reimport to be ambiguous and, hence, aborted\&. To pick a commit from one of the branches this option followed by the branch name can be used\&.
 .RE
 .PP
 \-d, \-\-debug

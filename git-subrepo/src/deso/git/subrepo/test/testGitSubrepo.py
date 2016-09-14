@@ -109,7 +109,7 @@ class GitRepository(PathMixin, PythonMixin, Repository):
 
 
   @Repository.autoChangeDir
-  def reimport(self, commit):
+  def reimport(self, commit, branch=None):
     """Reimport all subrepos found."""
     # In order for an interactive rebase operation to work in our
     # non-interactive test we simply skip the editor part by setting it
@@ -117,8 +117,18 @@ class GitRepository(PathMixin, PythonMixin, Repository):
     # invocation but since we rarely use that in real-world workflows
     # and because it is more complex to employ we stay with rebase.
     env = {"GIT_EDITOR": TRUE}
-    cmd = " ".join([executable, GIT_SUBREPO, "reimport"])
-    self.rebase("--interactive", "--keep-empty", "--exec=%s" % cmd, commit, env=env)
+    args = [executable, GIT_SUBREPO, "reimport"]
+    if branch is not None:
+      args += ["--branch=%s" % branch]
+
+    cmd = " ".join(args)
+    try:
+      self.rebase("--interactive", "--keep-empty", "--exec=%s" % cmd, commit, env=env)
+    except ProcessError as e:
+      # The rebase stopped in the middle because of some error (expected
+      # or not). Transparently abort the rebase here.
+      self.rebase("--abort")
+      raise
 
 
   @Repository.autoChangeDir
@@ -822,6 +832,33 @@ class TestGitSubrepo(TestCase):
       self.assertIn(expected, app.message("HEAD"))
 
     self.performReimportTest(extendedImport)
+
+
+  def testReimportIsIgnoredOnDifferentBranch(self):
+    """Verify that the --branch parameter is handled correctly."""
+    def amendOnDifferentBranch(lib, app):
+      """Amend a subrepo import to modify additional files and test reimport."""
+      sha1_old = lib.revParse("HEAD")
+      lib.checkout("-b", "non-master")
+      write(lib, "test.txt", data="data")
+      lib.add("test.txt")
+      lib.amend()
+      sha1_new = lib.revParse("HEAD")
+
+      # Last but not least reimport the subrepo. It should contain the
+      # latest changes afterwards.
+      app.fetch("lib")
+      app.reimport("init", branch="master")
+
+      self.assertEqual(read(app, "test.txt"), "test")
+      self.assertIn(sha1_old, app.message("HEAD"))
+
+      app.reimport("init", branch="non-master")
+
+      self.assertEqual(read(app, "test.txt"), "data")
+      self.assertIn(sha1_new, app.message("HEAD"))
+
+    self.performReimportTest(amendOnDifferentBranch)
 
 
   def testReimportCwdInPrefix(self):
