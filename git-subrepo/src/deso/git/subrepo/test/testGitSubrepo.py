@@ -445,11 +445,11 @@ class TestGitSubrepo(TestCase):
 
 
   def testBacktraceOnError(self):
-    """Verify that in case the --debug option is specified we get a backtrace."""
+    """Verify that in case the --debug-exceptions option is specified we get a backtrace."""
     with GitRepository() as repo:
       regex = r"Traceback \(most recent call last\)"
       with self.assertRaisesRegex(ProcessError, regex):
-        repo.subrepo("import", "--debug", "foo", "bar/", "HEAD")
+        repo.subrepo("import", "--debug-exceptions", "foo", "bar/", "HEAD")
 
 
   def testErrorOnUncommittedConflictingChanges(self):

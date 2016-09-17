@@ -14,7 +14,7 @@
   <refpurpose>Subrepo management for git</refpurpose>
 </refnamediv>
 <refsynopsisdiv id="_synopsis">
-<literallayout><emphasis>git subrepo</emphasis> [--debug] [--verbose]
+<literallayout><emphasis>git subrepo</emphasis> [--debug-exceptions] [--verbose]
 <emphasis>git subrepo</emphasis> import [--edit] [--force] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
 <emphasis>git subrepo</emphasis> delete [--edit] &lt;subrepo&gt; &lt;prefix&gt;
 <emphasis>git subrepo</emphasis> reimport [--branch=&lt;branch&gt;] &lt;subrepo&gt; &lt;prefix&gt;
@@ -178,17 +178,14 @@ tree
 </varlistentry>
 <varlistentry>
 <term>
--d
-</term>
-<term>
---debug
+--debug-exceptions
 </term>
 <listitem>
 <simpara>
   In the usual case git-subrepo prints an error in case one of the
-  executed git commands failed. When the -d/--debug flag is specified a
-  backtrace will be printed in addition, potentially helping in
-  debugging issues.
+  executed git commands failed. When the --debug-exceptions flag is
+  specified a backtrace will be printed in addition, potentially helping
+  in debugging issues.
 </simpara>
 </listitem>
 </varlistentry>

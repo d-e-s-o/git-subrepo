@@ -9,7 +9,7 @@ git-subrepo - Subrepo management for git
 SYNOPSIS
 --------
 [verse]
-'git subrepo' [--debug] [--verbose]
+'git subrepo' [--debug-exceptions] [--verbose]
 'git subrepo' import [--edit] [--force] <remote-repository> <prefix> <commit>
 'git subrepo' delete [--edit] <subrepo> <prefix>
 'git subrepo' reimport [--branch=<branch>] <subrepo> <prefix>
@@ -98,12 +98,11 @@ OPTIONS
   one of the branches this option followed by the branch name can be
   used.
 
--d::
---debug::
+--debug-exceptions::
   In the usual case git-subrepo prints an error in case one of the
-  executed git commands failed. When the -d/--debug flag is specified a
-  backtrace will be printed in addition, potentially helping in
-  debugging issues.
+  executed git commands failed. When the --debug-exceptions flag is
+  specified a backtrace will be printed in addition, potentially helping
+  in debugging issues.
 
 -e::
 --edit::

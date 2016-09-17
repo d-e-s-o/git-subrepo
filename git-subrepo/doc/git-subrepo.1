@@ -32,7 +32,7 @@ git-subrepo \- Subrepo management for git
 .SH "SYNOPSIS"
 .sp
 .nf
-\fIgit subrepo\fR [\-\-debug] [\-\-verbose]
+\fIgit subrepo\fR [\-\-debug\-exceptions] [\-\-verbose]
 \fIgit subrepo\fR import [\-\-edit] [\-\-force] <remote\-repository> <prefix> <commit>
 \fIgit subrepo\fR delete [\-\-edit] <subrepo> <prefix>
 \fIgit subrepo\fR reimport [\-\-branch=<branch>] <subrepo> <prefix>
@@ -113,9 +113,9 @@ Commit representing the state at which to import the given remote repository as 
 When performing a reimport, matching commits (those with the same subject line as the imported commit) are searched across branches\&. That is, if there are multiple branches containing two equally worded commits with different SHA\-1 hashes, both will be found leading to the reimport to be ambiguous and, hence, aborted\&. To pick a commit from one of the branches this option followed by the branch name can be used\&.
 .RE
 .PP
-\-d, \-\-debug
+\-\-debug\-exceptions
 .RS 4
-In the usual case git\-subrepo prints an error in case one of the executed git commands failed\&. When the \-d/\-\-debug flag is specified a backtrace will be printed in addition, potentially helping in debugging issues\&.
+In the usual case git\-subrepo prints an error in case one of the executed git commands failed\&. When the \-\-debug\-exceptions flag is specified a backtrace will be printed in addition, potentially helping in debugging issues\&.
 .RE
 .PP
 \-e, \-\-edit

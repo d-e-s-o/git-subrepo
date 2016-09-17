@@ -282,7 +282,8 @@ def addStandardArgs(parser):
 def addOptionalArgs(parser, reimport=False, delete=False, tree=False):
   """Add optional arguments to the argument parser."""
   parser.add_argument(
-    "-d", "--debug", action="store_true", default=False, dest="debug",
+    "--debug-exceptions", action="store_true", default=False,
+    dest="debug_exceptions",
     help="In addition to the already provided error messages also print "
          "backtraces for encountered errors.",
   )
@@ -1145,7 +1146,7 @@ def main(argv):
       assert False
       return 1
   except (ProcessError, SubrepoError) as e:
-    if namespace.debug:
+    if namespace.debug_exceptions:
       raise
 
     print("%s" % e, file=stderr)
