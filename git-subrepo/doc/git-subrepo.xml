@@ -14,7 +14,7 @@
   <refpurpose>Subrepo management for git</refpurpose>
 </refnamediv>
 <refsynopsisdiv id="_synopsis">
-<literallayout><emphasis>git subrepo</emphasis> [--debug-exceptions] [--verbose]
+<literallayout><emphasis>git subrepo</emphasis> [--debug-commands] [--debug-exceptions]
 <emphasis>git subrepo</emphasis> import [--edit] [--force] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
 <emphasis>git subrepo</emphasis> delete [--edit] &lt;subrepo&gt; &lt;prefix&gt;
 <emphasis>git subrepo</emphasis> reimport [--branch=&lt;branch&gt;] &lt;subrepo&gt; &lt;prefix&gt;
@@ -178,6 +178,20 @@ tree
 </varlistentry>
 <varlistentry>
 <term>
+--debug-commands
+</term>
+<listitem>
+<simpara>
+  In normal mode of operation git-subrepo only prints messages in case
+  of errors. For debugging purposes it might be beneficial to understand
+  which commands are being executed and possibly replay them. By
+  specifying this option all command invocations are reported to the
+  user.
+</simpara>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
 --debug-exceptions
 </term>
 <listitem>
@@ -217,23 +231,6 @@ tree
   import a given remote repository in the form of a subrepo does indeed
   belong to the remote repository specified. By using this option this
   check can be omitted and an import be forced.
-</simpara>
-</listitem>
-</varlistentry>
-<varlistentry>
-<term>
--v
-</term>
-<term>
---verbose
-</term>
-<listitem>
-<simpara>
-  In normal mode of operation git-subrepo only prints messages in case
-  of errors. For debugging purposes it might be beneficial to understand
-  which commands are being executed and possibly replay them. By
-  specifying this option all command invocations are reported to the
-  user.
 </simpara>
 </listitem>
 </varlistentry>

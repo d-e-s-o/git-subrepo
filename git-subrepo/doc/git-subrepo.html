@@ -748,7 +748,7 @@ git-subrepo(1) Manual Page
 <h2 id="_synopsis">SYNOPSIS</h2>
 <div class="sectionbody">
 <div class="verseblock">
-<pre class="content"><em>git subrepo</em> [--debug-exceptions] [--verbose]
+<pre class="content"><em>git subrepo</em> [--debug-commands] [--debug-exceptions]
 <em>git subrepo</em> import [--edit] [--force] &lt;remote-repository&gt; &lt;prefix&gt; &lt;commit&gt;
 <em>git subrepo</em> delete [--edit] &lt;subrepo&gt; &lt;prefix&gt;
 <em>git subrepo</em> reimport [--branch=&lt;branch&gt;] &lt;subrepo&gt; &lt;prefix&gt;
@@ -894,6 +894,18 @@ tree
 </p>
 </dd>
 <dt class="hdlist1">
+--debug-commands
+</dt>
+<dd>
+<p>
+  In normal mode of operation git-subrepo only prints messages in case
+  of errors. For debugging purposes it might be beneficial to understand
+  which commands are being executed and possibly replay them. By
+  specifying this option all command invocations are reported to the
+  user.
+</p>
+</dd>
+<dt class="hdlist1">
 --debug-exceptions
 </dt>
 <dd>
@@ -929,21 +941,6 @@ tree
   import a given remote repository in the form of a subrepo does indeed
   belong to the remote repository specified. By using this option this
   check can be omitted and an import be forced.
-</p>
-</dd>
-<dt class="hdlist1">
--v
-</dt>
-<dt class="hdlist1">
---verbose
-</dt>
-<dd>
-<p>
-  In normal mode of operation git-subrepo only prints messages in case
-  of errors. For debugging purposes it might be beneficial to understand
-  which commands are being executed and possibly replay them. By
-  specifying this option all command invocations are reported to the
-  user.
 </p>
 </dd>
 </dl></div>
@@ -1153,7 +1150,7 @@ so:</p></div>
 <div id="footnotes"><hr /></div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2016-09-17 12:59:08 PDT
+Last updated 2016-09-17 13:01:15 PDT
 </div>
 </div>
 </body>

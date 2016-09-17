@@ -32,7 +32,7 @@ git-subrepo \- Subrepo management for git
 .SH "SYNOPSIS"
 .sp
 .nf
-\fIgit subrepo\fR [\-\-debug\-exceptions] [\-\-verbose]
+\fIgit subrepo\fR [\-\-debug\-commands] [\-\-debug\-exceptions]
 \fIgit subrepo\fR import [\-\-edit] [\-\-force] <remote\-repository> <prefix> <commit>
 \fIgit subrepo\fR delete [\-\-edit] <subrepo> <prefix>
 \fIgit subrepo\fR reimport [\-\-branch=<branch>] <subrepo> <prefix>
@@ -113,6 +113,11 @@ Commit representing the state at which to import the given remote repository as 
 When performing a reimport, matching commits (those with the same subject line as the imported commit) are searched across branches\&. That is, if there are multiple branches containing two equally worded commits with different SHA\-1 hashes, both will be found leading to the reimport to be ambiguous and, hence, aborted\&. To pick a commit from one of the branches this option followed by the branch name can be used\&.
 .RE
 .PP
+\-\-debug\-commands
+.RS 4
+In normal mode of operation git\-subrepo only prints messages in case of errors\&. For debugging purposes it might be beneficial to understand which commands are being executed and possibly replay them\&. By specifying this option all command invocations are reported to the user\&.
+.RE
+.PP
 \-\-debug\-exceptions
 .RS 4
 In the usual case git\-subrepo prints an error in case one of the executed git commands failed\&. When the \-\-debug\-exceptions flag is specified a backtrace will be printed in addition, potentially helping in debugging issues\&.
@@ -126,11 +131,6 @@ By default git\-subrepo creates a commit message containing only the essential i
 \-f, \-\-force
 .RS 4
 As a sanity check, git\-subrepo verifies that a commit at which to import a given remote repository in the form of a subrepo does indeed belong to the remote repository specified\&. By using this option this check can be omitted and an import be forced\&.
-.RE
-.PP
-\-v, \-\-verbose
-.RS 4
-In normal mode of operation git\-subrepo only prints messages in case of errors\&. For debugging purposes it might be beneficial to understand which commands are being executed and possibly replay them\&. By specifying this option all command invocations are reported to the user\&.
 .RE
 .SH "ROOT IMPORTS"
 .sp

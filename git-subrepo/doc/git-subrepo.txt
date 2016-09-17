@@ -9,7 +9,7 @@ git-subrepo - Subrepo management for git
 SYNOPSIS
 --------
 [verse]
-'git subrepo' [--debug-exceptions] [--verbose]
+'git subrepo' [--debug-commands] [--debug-exceptions]
 'git subrepo' import [--edit] [--force] <remote-repository> <prefix> <commit>
 'git subrepo' delete [--edit] <subrepo> <prefix>
 'git subrepo' reimport [--branch=<branch>] <subrepo> <prefix>
@@ -98,6 +98,13 @@ OPTIONS
   one of the branches this option followed by the branch name can be
   used.
 
+--debug-commands::
+  In normal mode of operation git-subrepo only prints messages in case
+  of errors. For debugging purposes it might be beneficial to understand
+  which commands are being executed and possibly replay them. By
+  specifying this option all command invocations are reported to the
+  user.
+
 --debug-exceptions::
   In the usual case git-subrepo prints an error in case one of the
   executed git commands failed. When the --debug-exceptions flag is
@@ -116,14 +123,6 @@ OPTIONS
   import a given remote repository in the form of a subrepo does indeed
   belong to the remote repository specified. By using this option this
   check can be omitted and an import be forced.
-
--v::
---verbose::
-  In normal mode of operation git-subrepo only prints messages in case
-  of errors. For debugging purposes it might be beneficial to understand
-  which commands are being executed and possibly replay them. By
-  specifying this option all command invocations are reported to the
-  user.
 
 ROOT IMPORTS
 ------------

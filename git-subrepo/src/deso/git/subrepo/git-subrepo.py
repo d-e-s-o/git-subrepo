@@ -282,6 +282,12 @@ def addStandardArgs(parser):
 def addOptionalArgs(parser, reimport=False, delete=False, tree=False):
   """Add optional arguments to the argument parser."""
   parser.add_argument(
+    "--debug-commands", action="store_true", default=False,
+    dest="debug_commands",
+    help="Display the commands being executed. This option is useful for "
+         "understanding, debugging, and replaying what is being performed.",
+  )
+  parser.add_argument(
     "--debug-exceptions", action="store_true", default=False,
     dest="debug_exceptions",
     help="In addition to the already provided error messages also print "
@@ -299,11 +305,6 @@ def addOptionalArgs(parser, reimport=False, delete=False, tree=False):
            "representing the state was not found to belong to the remote "
            "repository from which to import.",
     )
-  parser.add_argument(
-    "-v", "--verbose", action="store_true", default=False, dest="verbose",
-    help="Be more verbose about what is being done by displaying the git "
-         "commands performed.",
-  )
 
 
 def addImportParser(parser):
@@ -475,10 +476,10 @@ def deleteMessageForCommit(subrepo, dependencies):
 
 class GitImporter:
   """A class handling subrepo imports."""
-  def __init__(self, verbose):
+  def __init__(self, debug_commands):
     """Initialize the git subrepo importer object."""
-    root = self._retrieveRepositoryRoot(verbose)
-    self._git = GitExecutor(root, verbose)
+    root = self._retrieveRepositoryRoot(debug_commands)
+    self._git = GitExecutor(root, debug_commands)
 
 
   def resolveCommit(self, commit):
@@ -830,11 +831,11 @@ class GitImporter:
 
 
   @staticmethod
-  def _retrieveRepositoryRoot(verbose):
+  def _retrieveRepositoryRoot(print_commands=False):
     """Retrieve the root directory of the current git repository."""
     # This function does not invoke git with the "-C" parameter because it
     # is the one that retrieves the argument to use with it.
-    out = _execute(GIT, "rev-parse", "--show-toplevel", verbose=verbose)
+    out = _execute(GIT, "rev-parse", "--show-toplevel", verbose=print_commands)
     return out[:-1].decode("utf-8")
 
 
@@ -1119,7 +1120,7 @@ def main(argv):
     repo = getattr(namespace, "remote-repository")
 
   try:
-    git = GitImporter(namespace.verbose)
+    git = GitImporter(namespace.debug_commands)
     # The user-given prefix is to be treated relative to the current
     # working directory. This directory is not necessarily equal to the
     # current repository's root. So we have to perform some path magic in
