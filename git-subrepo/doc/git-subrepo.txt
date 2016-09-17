@@ -12,7 +12,7 @@ SYNOPSIS
 'git subrepo' [--debug-commands] [--debug-exceptions]
 'git subrepo' import [--edit] [--force] <remote-repository> <prefix> <commit>
 'git subrepo' delete [--edit] <subrepo> <prefix>
-'git subrepo' reimport [--branch=<branch>] <subrepo> <prefix>
+'git subrepo' reimport [--branch=<branch>] [--verbose] <subrepo> <prefix>
 'git subrepo' tree
 
 
@@ -123,6 +123,11 @@ OPTIONS
   import a given remote repository in the form of a subrepo does indeed
   belong to the remote repository specified. By using this option this
   check can be omitted and an import be forced.
+
+-v::
+--verbose::
+  Be more verbose during a reimport by displaying the previous import
+  commit as well as the new one.
 
 ROOT IMPORTS
 ------------

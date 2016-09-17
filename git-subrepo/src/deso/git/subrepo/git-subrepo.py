@@ -348,6 +348,11 @@ def addReimportParser(parser):
     "-b", "--branch", action="store", default=None,
     help="Specify a branch in which to look for \"newer\" commits.",
   )
+  optional.add_argument(
+    "-v", "--verbose", action="store_true", default=None,
+    help="Be more verbose and print the old and the new commit SHA1 on "
+         "reimport.",
+  )
 
   addOptionalArgs(optional, reimport=True)
   addStandardArgs(optional)
@@ -642,7 +647,7 @@ class GitImporter:
     self._git.springWithSafeApply(pipe_cmds)
 
 
-  def reimport(self, branch=None):
+  def reimport(self, branch=None, verbose=False):
     """Attempt to reimport the import at the current HEAD, if any."""
     old_message = self._retrieveMessage("HEAD")
     match = IMPORT_MSG_RE.search(old_message)
@@ -665,6 +670,11 @@ class GitImporter:
 
       new_commit, = new_commits
       if new_commit != old_commit:
+        if verbose:
+          print("Performing reimport.")
+          print("Old commit: %s" % old_commit)
+          print("New commit: %s" % new_commit)
+
         new_message = replaceCommit(old_message, old_commit, new_commit)
         # Reimport the subrepo at a new commit. The incremental changes
         # (if any) will be staged, not committed yet.
@@ -673,6 +683,9 @@ class GitImporter:
         # adjust the message to reference the correct new commit that we
         # updated to.
         self.amendCommit(new_message)
+      else:
+        if verbose:
+          print("No changes found.")
 
 
   def commitImport(self, subrepo, sha1, edit=False):
@@ -1039,14 +1052,14 @@ def performImport(git, subrepo, commit, force=False, edit=False):
   return 0
 
 
-def performReimport(git, branch=None):
+def performReimport(git, branch=None, verbose=False):
   """Perform a subrepo reimport, if necessary."""
   if git.hasCachedChanges():
     print("Cannot import: Your index contains uncommitted changes.\n"
           "Please commit or stash them.", file=stderr)
     return 1
 
-  git.reimport(branch=branch)
+  git.reimport(branch=branch, verbose=verbose)
   return 0
 
 
@@ -1138,7 +1151,7 @@ def main(argv):
       return performImport(git, subrepo, namespace.commit,
                            force=namespace.force, edit=namespace.edit)
     elif namespace.command == "reimport":
-      return performReimport(git, namespace.branch)
+      return performReimport(git, namespace.branch, verbose=namespace.verbose)
     elif namespace.command == "delete":
       return performDelete(git, subrepo, edit=namespace.edit)
     elif namespace.command == "tree":
