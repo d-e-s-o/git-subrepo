@@ -436,14 +436,14 @@ def importMessageForImports(imports, outer_prefix):
   return messages
 
 
-def importMessageForCommit(subrepo, sha1, imports):
+def importMessageForCommit(subrepo, sha1, imports, space=True):
   """Craft a commit message for a subrepo import."""
   subject = importMessage(subrepo, sha1)
   body = importMessageForImports(imports, subrepo.prefix)
   if not body:
     return subject
 
-  return subject + "\n\n" + "\n".join(body)
+  return subject + ("\n\n" if space else "\n") + "\n".join(body)
 
 
 def deleteMessage(subrepo):
@@ -647,45 +647,55 @@ class GitImporter:
     self._git.springWithSafeApply(pipe_cmds)
 
 
-  def reimport(self, branch=None, verbose=False):
+  def _reimportImport(self, match, branch=None, verbose=False):
     """Attempt to reimport the import at the current HEAD, if any."""
+    prefix, repo, old_commit = match.groups()
+    subrepo = Subrepo(repo, prefix)
+
+    subject = self._retrieveSubject(old_commit)
+    new_commits = self._findCommitsBySubject(repo, subject, branch=branch)
+    count = len(new_commits)
+    if count != 1:
+      if count < 1:
+        msg = "Found no commits matching subject \"{sub}\"."
+      else:
+        msg = "Found {cnt} commits matching subject \"{sub}\":\n{commits}"
+
+      # Note that it is safe to supply arguments that are not contained
+      # in the string -- they will simply be ignored.
+      msg = msg.format(cnt=count, sub=subject, commits="\n".join(new_commits))
+      raise ReimportError(msg)
+
+    new_commit, = new_commits
+    if new_commit != old_commit:
+      if verbose:
+        print("Performing reimport.")
+        print("Old commit: %s" % old_commit)
+        print("New commit: %s" % new_commit)
+
+      old_message = match.string
+      new_message = self._replaceImportMessage(subrepo, old_message, new_commit, match.start())
+      # Reimport the subrepo at a new commit. The incremental changes
+      # (if any) will be staged, not committed yet.
+      self.import_(Subrepo(repo, prefix), new_commit)
+      # We amend the HEAD commit with the newly staged changes. We also
+      # adjust the message to reference the correct new commit that we
+      # updated to.
+      self.amendCommit(new_message)
+    else:
+      if verbose:
+        print("No changes found.")
+
+
+  def reimport(self, branch=None, verbose=False):
+    """Attempt to reimport the current HEAD, if any."""
+    if not self._hasHead():
+      return
+
     old_message = self._retrieveMessage("HEAD")
     match = IMPORT_MSG_RE.search(old_message)
     if match is not None:
-      prefix, repo, old_commit = match.groups()
-
-      subject = self._retrieveSubject(old_commit)
-      new_commits = self._findCommitsBySubject(repo, subject, branch=branch)
-      count = len(new_commits)
-      if count != 1:
-        if count < 1:
-          msg = "Found no commits matching subject \"{sub}\""
-        else:
-          msg = "Found {cnt} commits matching subject \"{sub}\":\n{commits}"
-
-        # Note that it is safe to supply arguments that are not contained
-        # in the string -- they will simply be ignored.
-        msg = msg.format(cnt=count, sub=subject, commits="\n".join(new_commits))
-        raise ReimportError(msg)
-
-      new_commit, = new_commits
-      if new_commit != old_commit:
-        if verbose:
-          print("Performing reimport.")
-          print("Old commit: %s" % old_commit)
-          print("New commit: %s" % new_commit)
-
-        new_message = replaceCommit(old_message, old_commit, new_commit)
-        # Reimport the subrepo at a new commit. The incremental changes
-        # (if any) will be staged, not committed yet.
-        self.import_(Subrepo(repo, prefix), new_commit)
-        # We amend the HEAD commit with the newly staged changes. We also
-        # adjust the message to reference the correct new commit that we
-        # updated to.
-        self.amendCommit(new_message)
-      else:
-        if verbose:
-          print("No changes found.")
+      self._reimportImport(match, branch=branch, verbose=verbose)
 
 
   def commitImport(self, subrepo, sha1, edit=False):
@@ -784,6 +794,28 @@ class GitImporter:
         delete_dependencies |= {(imported_subrepo, imported_sha1)}
 
     return delete_dependencies, ignore_dependencies
+
+
+  def _replaceImportMessage(self, subrepo, old_message, new_commit, start):
+    """Replace a commit message for an import for a specific commit with that of another commit."""
+    imports = self._searchImportedSubrepos(new_commit, flat=True)
+    # Sanity check that starting with the import line we found all
+    # remaining lines of the commit message contain imports as well.
+    if not all(map(IMPORT_MSG_RE.match, old_message[start:].splitlines())):
+      raise ReimportError("Invalid commit message. All import lines must reside at the end.")
+
+    # We need to differentiate between the case where a commit is
+    # *solely* an import and that when it contains other changes and,
+    # thus, additional text in the commit message. In the latter case we
+    # need to preserve the other text and must not craft an import
+    # message with an empty line between the first import and the
+    # others.
+    space = start == 0
+    new_message = importMessageForCommit(subrepo, new_commit, imports, space=space)
+    if not space:
+      new_message = old_message[:start] + new_message
+
+    return new_message
 
 
   def delete(self, subrepo):
@@ -1005,19 +1037,6 @@ class GitImporter:
     # expression syntax.
     regex = compileRe("^(?:%s)$" % pattern)
     return extract(commits, regex)
-
-
-def replaceCommit(message, old_commit, new_commit):
-  """Replace one SHA1 hash in a git-subrepo import commit message with another."""
-  # We consider it safe to just do a replace over the entire message (as
-  # oppossed to creating a regular expression matching only the import
-  # line and then replacing the commit only in this very line). The
-  # commit should not be contained in it in something else than the
-  # import line.
-  new_message = message.replace(old_commit, new_commit)
-  # Check that we really only made one replacement.
-  assert new_message == message.replace(old_commit, new_commit, 1)
-  return new_message
 
 
 def performImport(git, subrepo, commit, force=False, edit=False):

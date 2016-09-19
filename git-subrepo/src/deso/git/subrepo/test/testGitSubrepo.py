@@ -910,6 +910,51 @@ class TestGitSubrepo(TestCase):
     doTest("dir")
 
 
+  def testReimportCommitMessageFixup(self):
+    """Verify that a reimport fixes up the import commit message correctly."""
+    with GitRepository() as lib1,\
+         GitRepository() as lib2,\
+         GitRepository() as app:
+      # Create commit #1.
+      lib2.commit("--allow-empty")
+
+      # Create commit #2.
+      write(lib2, "lib2.c", data="dat")
+      lib2.add("lib2.c")
+      lib2.commit()
+      sha1 = lib2.revParse("HEAD")
+
+      # Import 'lib2' as a subrepo.
+      app.remote("add", "--fetch", "lib2", lib2.path())
+      app.subrepo("import", "lib2", "lib2", "master")
+
+      self.assertEqual(read(app, "lib2", "lib2.c"), "dat")
+      self.assertIn(sha1, app.message("HEAD"))
+
+      # Create some content for 'lib1'.
+      write(lib1, "lib1.c", data="dit")
+      lib1.add("lib1.c")
+      lib1.commit()
+
+      # Now change 'lib2's history by adding a subrepo import BEFORE
+      # commit #2. We do so by removing the top commit, performing a
+      # subrepo import of 'lib1', and then cherry-picking the original
+      # commit #2 (we still have its SHA1).
+      lib2.reset("--hard", "HEAD^")
+      lib2.remote("add", "--fetch", "lib1", lib1.path())
+      lib2.subrepo("import", "lib1", "lib1", "master")
+      lib2.cherryPick(sha1)
+
+      # Lastly, reimport 'lib2' in 'app'. It should now pull in 'lib1'
+      # and also mark this import in the resulting commit message.
+      app.fetch("lib2")
+      app.subrepo("reimport")
+
+      self.assertEqual(read(app, "lib2", "lib1", "lib1.c"), "dit")
+      self.assertIn(lib1.revParse("HEAD"), app.message("HEAD"))
+      self.assertIn(lib2.revParse("HEAD"), app.message("HEAD"))
+
+
   def testSubrepoDelete(self):
     """Verify that a subrepo can be deleted."""
     def doTest(prefix):
