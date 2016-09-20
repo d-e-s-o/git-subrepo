@@ -85,6 +85,8 @@ FILE_R = ".+"
 SHA1_R = "[a-z0-9]{40}"
 IMPORT_MSG_R = IMPORT_MSG.format(prefix=PREFIX_R, repo=REPO_R, sha1="(%s)" % SHA1_R)
 IMPORT_MSG_RE = compileRe(r"%s" % IMPORT_MSG_R)
+DELETE_MSG_R = DELETE_MSG.format(prefix=PREFIX_R, repo=REPO_R)
+DELETE_MSG_RE = compileRe(r"%s" % DELETE_MSG_R)
 # As per git-ls-tree(1) each line has the following format:
 # <mode> SP <type> SP <object> TAB <file>
 LS_TREE = "{nows} {type} {nows}\t({file})$"
@@ -469,14 +471,14 @@ def deleteMessageForDeletion(dependencies):
   return messages
 
 
-def deleteMessageForCommit(subrepo, dependencies):
+def deleteMessageForCommit(subrepo, dependencies, space=True):
   """Craft a commit message for a subrepo deletion."""
   subject = deleteMessage(subrepo)
   body = deleteMessageForDeletion(dependencies)
   if not body:
     return subject
 
-  return subject + "\n\n" + "\n".join(body)
+  return subject + ("\n\n" if space else "\n") + "\n".join(body)
 
 
 class GitImporter:
@@ -687,6 +689,23 @@ class GitImporter:
         print("No changes found.")
 
 
+  def _reimportDelete(self, match):
+    """Attempt to reimport the deletion at the current HEAD, if any."""
+    prefix, repo = match.groups()
+    subrepo = Subrepo(repo, prefix)
+
+    old_message = match.string
+    new_message = self._replaceDeleteMessage(subrepo, old_message, match.start())
+    # We simply perform another deletion on top of the existing one. If
+    # any additional files had been added by means of a reimport these
+    # will now get deleted, which is exactly what we want.
+    # Note that HEAD^ always must exist at this point because in order
+    # for a deletion commit to exist (legitimately) there must have been
+    # an import beforehand.
+    self.delete(subrepo, commit="HEAD^")
+    self.amendCommit(new_message)
+
+
   def reimport(self, branch=None, verbose=False):
     """Attempt to reimport the current HEAD, if any."""
     if not self._hasHead():
@@ -696,6 +715,12 @@ class GitImporter:
     match = IMPORT_MSG_RE.search(old_message)
     if match is not None:
       self._reimportImport(match, branch=branch, verbose=verbose)
+      return
+
+    match = DELETE_MSG_RE.search(old_message)
+    if match is not None:
+      self._reimportDelete(match)
+      return
 
 
   def commitImport(self, subrepo, sha1, edit=False):
@@ -734,7 +759,7 @@ class GitImporter:
     return list(filter(lambda x: x.strip() != "", commits))
 
 
-  def _findSubreposForDeletion(self, subrepo):
+  def _findSubreposForDeletion(self, subrepo, commit=None):
     """Find the dependent subrepos for a deletion."""
     def flattenImports(tree):
       """Flatten a subrepo import tree by forcing all imports into a set."""
@@ -746,7 +771,7 @@ class GitImporter:
 
     # Retrieve the full dependency tree for this repository. That is,
     # all the imported subrepos along with the subrepos they pulled in.
-    head_sha1 = self.resolveCommit("HEAD")
+    head_sha1 = self.resolveCommit(commit if commit is not None else "HEAD")
     imports = self._searchImportedSubrepos(head_sha1)
 
     # Remove the top-level import of the repository we want to remove
@@ -818,14 +843,33 @@ class GitImporter:
     return new_message
 
 
-  def delete(self, subrepo):
+  def _replaceDeleteMessage(self, subrepo, old_message, start):
+    """Replace a commit message for an import for a specific commit with that of another commit."""
+    # Sanity check that starting with the deletion line we found all
+    # remaining lines of the commit message contain deletions as well.
+    if not all(map(DELETE_MSG_RE.match, old_message[start:].splitlines())):
+      raise ReimportError("Invalid commit message. All deletion lines must reside at the end.")
+
+    delete_deps, _ = self._findSubreposForDeletion(subrepo, commit="HEAD^")
+    delete_deps = {(subrepo_, sha1) for subrepo_, sha1 in delete_deps
+                     if subrepo_ != subrepo}
+
+    space = start == 0
+    new_message = deleteMessageForCommit(subrepo, delete_deps, space=space)
+    if not space:
+      new_message = old_message[:start] + new_message
+
+    return new_message
+
+
+  def delete(self, subrepo, commit=None):
     """Delete a previously imported subrepo."""
     assert trail(subrepo.prefix) == subrepo.prefix, subrepo.prefix
 
     if not self._hasHead():
       return
 
-    delete_deps, ignore_deps = self._findSubreposForDeletion(subrepo)
+    delete_deps, ignore_deps = self._findSubreposForDeletion(subrepo, commit=commit)
 
     # We omit a subrepo from deletion. We need to remember the
     # files it comprises as those might be removed by deletion of a

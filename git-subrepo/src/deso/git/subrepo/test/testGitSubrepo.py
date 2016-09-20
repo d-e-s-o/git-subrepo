@@ -955,6 +955,47 @@ class TestGitSubrepo(TestCase):
       self.assertIn(lib2.revParse("HEAD"), app.message("HEAD"))
 
 
+  def testReimportDelete(self):
+    """Verify that deletion commits are reimported properly."""
+    with GitRepository() as repo1,\
+         GitRepository() as repo2:
+      repo1.commit("--allow-empty")
+
+      # Add some content to 'repo1'.
+      mkdir(repo1.path("repo1"))
+      write(repo1, "repo1", "test.asm", data="mov $42, %rax")
+      repo1.add(repo1.path("repo1", "test.asm"))
+      repo1.commit()
+
+      # Create an initial empty commit so that we can properly rebase
+      # over all others.
+      repo2.commit("--allow-empty")
+      repo2.tag("init", "master")
+
+      # Import 'repo1' as a subrepo.
+      repo2.remote("add", "--fetch", "repo1", repo1.path())
+      repo2.subrepo("import", "repo1", ".", "master")
+
+      self.assertTrue(exists(repo2.path("repo1", "test.asm")))
+
+      repo2.subrepo("delete", "repo1", ".")
+      self.assertFalse(exists(repo2.path("repo1", "test.asm")))
+
+      # Next we add an additional file to 'repo1' and we do so by
+      # amending the HEAD commit.
+      write(repo1, "repo1", "file.asm", data="mov $1337, %rbx")
+      repo1.add(repo1.path("repo1", "file.asm"))
+      repo1.amend()
+
+      # Now we reimport 'repo1' in 'repo2'. The import will pull in the
+      # new file, file.asm, and the deletion should remove it.
+      repo2.fetch("repo1")
+      repo2.reimport("init")
+
+      self.assertFalse(exists(repo2.path("repo1", "test.asm")))
+      self.assertFalse(exists(repo2.path("repo1", "file.asm")))
+
+
   def testSubrepoDelete(self):
     """Verify that a subrepo can be deleted."""
     def doTest(prefix):
