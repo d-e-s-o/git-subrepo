@@ -315,6 +315,7 @@ def addImportParser(parser):
     "import", add_help=False, formatter_class=SubLevelHelpFormatter,
     help="Import a subrepo.",
   )
+  import_.set_defaults(perform_command=performImport)
 
   required = import_.add_argument_group("Required arguments")
   required.add_argument(
@@ -344,6 +345,7 @@ def addReimportParser(parser):
     "reimport", add_help=False, formatter_class=SubLevelHelpFormatter,
     help="Reimport a subrepo.",
   )
+  reimport.set_defaults(perform_command=performReimport)
 
   optional = reimport.add_argument_group("Optional arguments")
   optional.add_argument(
@@ -366,6 +368,7 @@ def addDeleteParser(parser):
     "delete", add_help=False, formatter_class=SubLevelHelpFormatter,
     help="Delete a previously imported subrepo.",
   )
+  delete_.set_defaults(perform_command=performDelete)
 
   required = delete_.add_argument_group("Required arguments")
   required.add_argument(
@@ -388,6 +391,7 @@ def addTreeParser(parser):
     "tree", add_help=False, formatter_class=SubLevelHelpFormatter,
     help="Dump the dependency tree of all subrepos.",
   )
+  tree.set_defaults(perform_command=performTree)
 
   optional = tree.add_argument_group("Optional arguments")
   addOptionalArgs(optional, tree=True)
@@ -1083,7 +1087,23 @@ class GitImporter:
     return extract(commits, regex)
 
 
-def performImport(git, subrepo, commit, force=False, edit=False):
+def _retrieveSubrepoFromNamespace(namespace, git):
+  """Given a namespace retrieve a Subrepo object for the prefix:repo attributes."""
+  repo = getattr(namespace, "remote-repository")
+  # The user-given prefix is to be treated relative to the current
+  # working directory. This directory is not necessarily equal to the
+  # current repository's root. So we have to perform some path magic in
+  # order to convert the prefix into one relative to the git
+  # repository's root. If we did nothing here git would always treat the
+  # prefix relative to the root directory which would result in
+  # unexpected behavior.
+  prefix = relpath(namespace.prefix)
+  prefix = relpath(prefix, start=git.root)
+  prefix = trail(prefix)
+  return Subrepo(repo, prefix)
+
+
+def performImport(git, namespace):
   """Perform a subrepo import."""
   # If the user has cached changes we do not continue as they would be
   # discarded.
@@ -1092,12 +1112,13 @@ def performImport(git, subrepo, commit, force=False, edit=False):
           "Please commit or stash them.", file=stderr)
     return 1
 
+  subrepo = _retrieveSubrepoFromNamespace(namespace, git)
   # We always resolve the possibly symbolic commit name into a SHA1
   # hash. The main reason is that we want this hash to be contained in
   # the commit message. So for consistency, we should also work with it.
-  sha1 = git.resolveRemoteCommit(subrepo.repo, commit)
+  sha1 = git.resolveRemoteCommit(subrepo.repo, namespace.commit)
 
-  if not force and not git.belongsToRepository(subrepo.repo, sha1):
+  if not namespace.force and not git.belongsToRepository(subrepo.repo, sha1):
     msg = "{sha1} is not a reachable commit in remote repository {repo}."
     msg = msg.format(sha1=sha1, repo=subrepo.repo)
     print(msg, file=stderr)
@@ -1111,34 +1132,36 @@ def performImport(git, subrepo, commit, force=False, edit=False):
     print("No changes", file=stderr)
     return 1
 
-  git.commitImport(subrepo, sha1, edit)
+  git.commitImport(subrepo, sha1, namespace.edit)
   return 0
 
 
-def performReimport(git, branch=None, verbose=False):
+def performReimport(git, namespace):
   """Perform a subrepo reimport, if necessary."""
   if git.hasCachedChanges():
     print("Cannot import: Your index contains uncommitted changes.\n"
           "Please commit or stash them.", file=stderr)
     return 1
 
-  git.reimport(branch=branch, verbose=verbose)
+  git.reimport(branch=namespace.branch, verbose=namespace.verbose)
   return 0
 
 
-def performDelete(git, subrepo, edit=False):
+def performDelete(git, namespace):
   """Perform a subrepo deletion."""
   if git.hasCachedChanges():
     print("Cannot delete: Your index contains uncommitted changes.\n"
           "Please commit or stash them.", file=stderr)
     return 1
 
+  subrepo = _retrieveSubrepoFromNamespace(namespace, git)
+
   git.delete(subrepo)
-  git.commitDelete(subrepo, edit)
+  git.commitDelete(subrepo, namespace.edit)
   return 0
 
 
-def performTree(git):
+def performTree(git, namespace):
   """Dump the dependency tree of all imported subrepos."""
   def indent(*args):
     """Retrieve the proper indentation for usage in a tree.
@@ -1192,37 +1215,12 @@ def main(argv):
   """The main function interprets the arguments and acts upon them."""
   parser = setupArgumentParser()
   namespace = parser.parse_args(argv[1:])
-  if namespace.command not in ["reimport", "tree"]:
-    repo = getattr(namespace, "remote-repository")
 
   try:
     git = GitImporter(namespace.debug_commands)
-    # The user-given prefix is to be treated relative to the current
-    # working directory. This directory is not necessarily equal to the
-    # current repository's root. So we have to perform some path magic in
-    # order to convert the prefix into one relative to the git
-    # repository's root. If we did nothing here git would always treat the
-    # prefix relative to the root directory which would result in
-    # unexpected behavior.
-    if namespace.command not in ["reimport", "tree"]:
-      prefix = relpath(namespace.prefix)
-      prefix = relpath(prefix, start=git.root)
-      prefix = trail(prefix)
-      subrepo = Subrepo(repo, prefix)
-
-    if namespace.command == "import":
-      return performImport(git, subrepo, namespace.commit,
-                           force=namespace.force, edit=namespace.edit)
-    elif namespace.command == "reimport":
-      return performReimport(git, namespace.branch, verbose=namespace.verbose)
-    elif namespace.command == "delete":
-      return performDelete(git, subrepo, edit=namespace.edit)
-    elif namespace.command == "tree":
-      return performTree(git)
-    else:
-      assert False
-      return 1
-  except (ProcessError, SubrepoError) as e:
+    assert hasattr(namespace, "perform_command")
+    return namespace.perform_command(git, namespace)
+  except (AttributeError, ProcessError, SubrepoError) as e:
     if namespace.debug_exceptions:
       raise
 
