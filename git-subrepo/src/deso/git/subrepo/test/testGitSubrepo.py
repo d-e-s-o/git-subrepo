@@ -34,6 +34,9 @@ from deso.git.repo import (
   Repository,
   write,
 )
+from deso.git.subrepo import (
+  GitImporter,
+)
 from os import (
   chdir,
   getcwd,
@@ -139,6 +142,55 @@ class GitRepository(PathMixin, PythonMixin, Repository):
 
 class TestGitSubrepo(TestCase):
   """Tests for the git-subrepo script."""
+  def testSubsumedFileRemoval(self):
+    """Test that the removeSubsumedFiles method works as expected."""
+    def doTest(files, expected):
+      """Remove subsumed files from a list and check for the expected result."""
+      new_files = GitImporter.removeSubsumedFiles(files)
+      # We operate on sets (i.e., ignore order) to make testing more
+      # intuitive.
+      self.assertSetEqual(set(new_files), set(expected))
+
+    input_output = [
+      # A single file/directory should be left untouched.
+      (["/usr/"],
+       ["/usr/"]),
+      # Duplicated entries should be removed (and trailing separators
+      # ignored).
+      (["/etc", "/etc/"],
+       ["/etc"]),
+      # Non-subsumed files need to stay.
+      (["/etc/hosts.conf", "/etc/conf.d/"],
+       ["/etc/hosts.conf", "/etc/conf.d/"]),
+      (["/usr/lib/libz.so", "/usr/lib64"],
+       ["/usr/lib/libz.so", "/usr/lib64"]),
+      (["/usr/lib64/libz.so", "/usr/lib"],
+       ["/usr/lib64/libz.so", "/usr/lib"]),
+      (["/usr/lib64/", "/usr/lib"],
+       ["/usr/lib64/", "/usr/lib"]),
+      (["/usr/lib64", "/usr/lib/"],
+       ["/usr/lib64", "/usr/lib/"]),
+      (["/usr/lib64", "/usr/lib"],
+       ["/usr/lib64", "/usr/lib"]),
+      (["python/lib", "python/lib3"],
+       ["python/lib", "python/lib3"]),
+      # Subsumed files should be removed.
+      (["/etc/hosts.conf", "/etc/conf.d/hostname", "/etc/conf.d/"],
+       ["/etc/hosts.conf", "/etc/conf.d/"]),
+      (["/etc/init.d", "/etc/init.d/x", "/etc/init.d/y"],
+       ["/etc/init.d"]),
+      (["/etc/env.d/", "/etc/env.d/00basic", "/etc/env.d/0", "/etc/env.d/10"],
+       ["/etc/env.d/"]),
+      (["/etc/env.d/", "/etc/conf.d/host", "/etc/conf.d", "/etc/env.d/00basic"],
+       ["/etc/env.d/", "/etc/conf.d"]),
+      (["/usr", "python", "python/lib", "python/lib3"],
+       ["/usr", "python"]),
+    ]
+
+    for files, expected in input_output:
+      doTest(files, expected)
+
+
   def addUpdateAndCheck(self, prefix, multi_commit=False):
     """Add a subrepo to another directory and check for correct file contents."""
     with GitRepository() as lib1,\
@@ -755,6 +807,39 @@ class TestGitSubrepo(TestCase):
 
       self.assertIn("import subrepo src-r2/:r2 at ", r1.message("HEAD"))
       self.assertIn("import subrepo src-r2/src-r3/:r3 at ", r1.message("HEAD"))
+
+
+  def testImportWithSubsumingPrefix(self):
+    """Import a state containing two directories with one's name being a prefix of the other's."""
+    with GitRepository() as foo,\
+         GitRepository() as bar:
+      mkdir(bar.path("lib"))
+      write(bar, "lib", "foo.py", data="test")
+      mkdir(bar.path("lib64"))
+      write(bar, "lib64", "bar.py", data="test2")
+
+      bar.add(bar.path("lib", "foo.py"))
+      bar.add(bar.path("lib64", "bar.py"))
+      bar.commit()
+
+      foo.remote("add", "--fetch", "bar", bar.path())
+      foo.subrepo("import", "bar", ".", "master")
+
+      self.assertEqual(read(foo, "lib/foo.py"), "test")
+      self.assertEqual(read(foo, "lib64/bar.py"), "test2")
+
+      # Make some changes to bar's files and then perform another import.
+      write(bar, "lib", "foo.py", data="test3")
+      write(bar, "lib64", "bar.py", data="test4")
+      bar.add(bar.path("lib", "foo.py"))
+      bar.add(bar.path("lib64", "bar.py"))
+      bar.commit()
+
+      foo.fetch("bar")
+      foo.subrepo("import", "bar", ".", "master")
+
+      self.assertEqual(read(foo, "lib/foo.py"), "test3")
+      self.assertEqual(read(foo, "lib64/bar.py"), "test4")
 
 
   def performReimportTest(self, test_func):

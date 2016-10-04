@@ -562,22 +562,48 @@ class GitImporter:
       return True
 
 
-  def removeSubsumedFiles(self, files):
+  @staticmethod
+  def removeSubsumedFiles(files):
     """Remove files that are subsumed by directories."""
-    # TODO: The logic here is broken. os.path.commonprefix does not
-    #       check prefixes on a file/directory level but purely on a
-    #       string basis, meaning foo/barbaz would be "subsumed" by
-    #       foo/bar (because foo/bar is a common prefix of foo/barbaz on
-    #       a string level).
+    if len(files) <= 1:
+      return files
+
+    # We work on a sorted list of files. This way we are sure that
+    # directories potentially subsuming files appear before said files.
     files = sorted(files)
-    new_files = []
-    for i, file_ in enumerate(files):
-      if i < len(files) - 1:
-        p = commonprefix([file_, files[i+1]])
-        if p == file_:
+    subsumer, *files = files
+
+    new_files = [subsumer]
+    subsumer = trail(subsumer)
+
+    for file_ in files:
+      # Find the longest string both paths have in common. Note that
+      # commonprefix really operates on a string/character level. It has
+      # no knowledge of paths and path components. For that reason we need
+      # some more checks below to not detect a subsumes relationship where
+      # there is none. Consider for example the paths
+      #   foo/bar
+      #   foo/barbaz
+      # where foo/bar is a common prefix of foo/barbaz on a string-level
+      # but not on a path-level.
+      prefix = commonprefix([file_, subsumer])
+      if prefix == subsumer:
+        # We determined that the given file could indeed be subsumed by
+        # 'subsumer'. However, we need to rule out false positives caused
+        # by working on a string level as opposed on a path level by
+        # checking the determined prefix does not lie in the middle of
+        # file_'s path. Note that usage of commonpath (available starting
+        # from Python 3.5) instead of commonprefix above would relieve us
+        # from these additional checks.
+        length = len(prefix)
+        is_file = length < len(file_) and file_[length - 1] == sep
+        is_same = length == len(file_)
+
+        if is_file or is_same:
           continue
 
       new_files += [file_]
+      subsumer = trail(file_)
 
     return new_files
 
