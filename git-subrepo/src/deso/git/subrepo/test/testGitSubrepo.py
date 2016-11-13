@@ -1071,6 +1071,43 @@ class TestGitSubrepo(TestCase):
       self.assertIn(r1.revParse("HEAD"), r2.message("HEAD"))
 
 
+  def testReimportRecursiveSubrepoImport(self):
+    """Verify that we can reimport a recursive subrepo import."""
+    with GitRepository() as r1,\
+         GitRepository() as r2,\
+         GitRepository() as r3:
+      r1.commit("--allow-empty")
+      write(r1, "r1.c", data="1st")
+      r1.add("r1.c")
+      r1.commit()
+
+      r2.commit("--allow-empty")
+      write(r2, "r2.c", data="2nd")
+      r2.add("r2.c")
+      r2.commit()
+
+      r2.remote("add", "--fetch", "r1", r1.path())
+      r2.subrepo("import", "r1", ".", "master")
+      r2.commit("--allow-empty")
+
+      r3.commit("--allow-empty")
+      r3.remote("add", "--fetch", "r2", r2.path())
+      r3.subrepo("import", "r2", ".", "master")
+
+      write(r1, "r1.c", data="1st-amended")
+      r1.add("r1.c")
+      r1.amend()
+      r1_sha1 = r1.revParse("HEAD")
+
+      r2.fetch("r1")
+      r2.reimport("HEAD^^")
+
+      r3.fetch("r2")
+      self.assertNotIn(r1_sha1, r3.message("HEAD"))
+      r3.reimport("HEAD^")
+      self.assertIn(r1_sha1, r3.message("HEAD"))
+
+
   def testReimportDelete(self):
     """Verify that deletion commits are reimported properly."""
     with GitRepository() as repo1,\

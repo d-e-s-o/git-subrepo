@@ -850,12 +850,18 @@ class GitImporter:
     return delete_dependencies, ignore_dependencies
 
 
+  def _isValidCommitMessage(self, expression, message):
+    """Check whether a given commit message is valid by matching each line with a pattern."""
+    lines = filter(lambda x: len(x) > 0, message.splitlines())
+    return all(map(expression.match, lines))
+
+
   def _replaceImportMessage(self, subrepo, old_message, new_commit, start):
     """Replace a commit message for an import for a specific commit with that of another commit."""
     imports = self._searchImportedSubrepos(new_commit, flat=True)
     # Sanity check that starting with the import line we found all
     # remaining lines of the commit message contain imports as well.
-    if not all(map(IMPORT_MSG_RE.match, old_message[start:].splitlines())):
+    if not self._isValidCommitMessage(IMPORT_MSG_RE, old_message[start:]):
       raise ReimportError("Invalid commit message. All import lines must reside at the end.")
 
     # We need to differentiate between the case where a commit is
@@ -876,7 +882,7 @@ class GitImporter:
     """Replace a commit message for an import for a specific commit with that of another commit."""
     # Sanity check that starting with the deletion line we found all
     # remaining lines of the commit message contain deletions as well.
-    if not all(map(DELETE_MSG_RE.match, old_message[start:].splitlines())):
+    if not self._isValidCommitMessage(DELETE_MSG_RE, old_message[start:]):
       raise ReimportError("Invalid commit message. All deletion lines must reside at the end.")
 
     delete_deps, _ = self._findSubreposForDeletion(subrepo, commit="HEAD^")
