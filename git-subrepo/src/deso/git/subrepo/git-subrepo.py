@@ -781,7 +781,6 @@ class GitImporter:
     args = [
       "--remotes=%s" % pattern,
       "--grep=^%s$" % subject,
-      "HEAD",
     ]
 
     out = self._git.execute("rev-list", *args)

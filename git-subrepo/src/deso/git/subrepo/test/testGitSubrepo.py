@@ -1040,6 +1040,37 @@ class TestGitSubrepo(TestCase):
       self.assertIn(lib2.revParse("HEAD"), app.message("HEAD"))
 
 
+  def testReimportSameCommitInImportingRepository(self):
+    """Reimport when the importing repo has a commit with the same message as the remote one."""
+    with GitRepository() as r1,\
+         GitRepository() as r2:
+      r1.commit("--allow-empty")
+      write(r1, "r1.c", data="1st")
+      r1.add("r1.c")
+      r1.commit()
+
+      r2.commit("--allow-empty")
+      write(r2, "r2.c", data="2nd")
+      r2.add("r2.c")
+      r2.commit()
+
+      r2.remote("add", "--fetch", "r1", r1.path())
+      r2.subrepo("import", "r1", ".", "master")
+
+      write(r1, "r1.c", data="1st-amended")
+      r1.add("r1.c")
+      r1.amend()
+
+      # Reimport 'r1' at changed state. This reimport would fail if we
+      # could not properly handle the case that the importing repository
+      # ("r2") contains a commit with the same subject line as the
+      # commit we try to reimport the given remote repository ("r1") at.
+      r2.fetch("r1")
+      self.assertNotIn(r1.revParse("HEAD"), r2.message("HEAD"))
+      r2.subrepo("reimport")
+      self.assertIn(r1.revParse("HEAD"), r2.message("HEAD"))
+
+
   def testReimportDelete(self):
     """Verify that deletion commits are reimported properly."""
     with GitRepository() as repo1,\
