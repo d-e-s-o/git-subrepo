@@ -352,6 +352,49 @@ class TestGitSubrepo(TestCase):
       self.assertEqual(read(app, "src", "lib", "lib.h"), read(lib, "lib.h"))
 
 
+  def testImportOnSameBranchAsImportDirectory(self):
+    """Verify we can import when residing on a branch named equal to the import directory."""
+    def doTest(r1_prefix, import_prefix):
+      """Perform the import test with the given prefixes."""
+      with GitRepository() as r1,\
+           GitRepository() as r2:
+        if r1_prefix != ".":
+          mkdir(r1.path(r1_prefix))
+
+        r1_file = r1.path(r1_prefix, "r1.py")
+        r2_file = r2.path(import_prefix, r1_prefix, "r1.py")
+
+        # Create two commits.
+        write(r1, r1_file, data="# r1.py")
+        r1.add(r1_file)
+        r1.commit()
+
+        write(r1, r1_file, data="# r1.py\n# 2")
+        r1.add(r1_file)
+        r1.commit()
+
+        # Change to a branch of the same name as the remote repository and
+        # the local directory where we import this remote repository.
+        r2.checkout("-b", "r1")
+        # Import at the first commit.
+        r2.remote("add", "--fetch", "r1", r1.path())
+        r2.subrepo("import", "r1", import_prefix, "master^")
+
+        self.assertEqual(read(r2, r2_file), "# r1.py")
+
+        # And import at the second commit.
+        r2.subrepo("import", "r1", import_prefix, "master")
+        self.assertEqual(read(r2, r2_file), read(r1, r1_file))
+
+        # Also perform a deletion.
+        self.assertTrue(exists(r2.path(import_prefix, r1_prefix)))
+        r2.subrepo("delete", "r1", import_prefix)
+        self.assertFalse(exists(r2.path(import_prefix, r1_prefix)))
+
+    doTest(".", "r1")
+    doTest("r1", ".")
+
+
   def testAddEqualRepos(self):
     """Verify that we can merge two similar subrepos pulled in as dependencies."""
     with GitRepository() as lib1,\

@@ -617,7 +617,7 @@ class GitImporter:
       # is, we just check if it exists at all, not if we have write access
       # etc.). We let git handle the rest.
       if lexists(join(self.root, file_)):
-        return [git_diff_index + ["-R", empty_tree, file_]]
+        return [git_diff_index + ["-R", empty_tree, "--", file_]]
       else:
         return []
 
