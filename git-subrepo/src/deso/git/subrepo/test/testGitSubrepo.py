@@ -53,6 +53,7 @@ from random import (
   randint,
 )
 from sys import (
+  argv as sysargv,
   executable,
 )
 from tempfile import (
@@ -70,13 +71,13 @@ GIT = findCommand("git")
 GIT_SUBREPO = realpath(join(dirname(__file__), pardir, "git-subrepo.py"))
 
 
-def _subrepo(*args):
+def _subrepo(*args, **kwargs):
   """Invoke git-subrepo with the given arguments."""
   env = {}
   PathMixin.inheritEnv(env)
   PythonMixin.inheritEnv(env)
 
-  execute(executable, GIT_SUBREPO, *args, env=env)
+  return execute(executable, GIT_SUBREPO, *args, env=env, **kwargs)
 
 
 class GitRepository(PathMixin, PythonMixin, Repository):
@@ -1416,6 +1417,29 @@ class TestGitSubrepo(TestCase):
 
     doTest(".")
     doTest("dir")
+
+
+  def performCompletion(self, to_complete, expected):
+    """Perform a completion and verify the expected result is produced."""
+    argv = [
+      "--_complete",
+      "%d" % len(to_complete),
+      sysargv[0],
+    ] + to_complete
+
+    out, _ = _subrepo(*argv, stdout=b"")
+    completions = out.decode().splitlines()
+    self.assertSetEqual(set(completions), expected)
+
+
+  def testCompletion(self):
+    """Verify that commands and arguments can be completed properly."""
+    self.performCompletion(["--h"], {"--help"})
+    self.performCompletion(["imp"], {"import"})
+    self.performCompletion(["import", "--debug"], {"--debug-commands", "--debug-exceptions"})
+    self.performCompletion(["import", "--f"], {"--force"})
+    self.performCompletion(["re"], {"reimport"})
+    self.performCompletion(["reimport", "--e"], {"--edit"})
 
 
 if __name__ == "__main__":

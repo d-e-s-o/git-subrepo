@@ -20,7 +20,6 @@
 """This script provides sub-repository functionality for git(1)."""
 
 from argparse import (
-  ArgumentParser,
   HelpFormatter,
 )
 from bisect import (
@@ -28,6 +27,9 @@ from bisect import (
 )
 from collections import (
   namedtuple,
+)
+from deso.argcomp import (
+  CompletingArgumentParser as ArgumentParser,
 )
 from deso.execute import (
   execute as execute_,
