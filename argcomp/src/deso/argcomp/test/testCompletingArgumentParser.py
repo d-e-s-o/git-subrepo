@@ -34,10 +34,22 @@ from deso.argcomp.parser import (
 from io import (
   StringIO,
 )
+from os import (
+  chdir,
+  getcwd,
+  listdir,
+)
+from os.path import (
+  basename,
+)
 from sys import (
   argv as sysargv,
   executable,
   maxsize,
+)
+from tempfile import (
+  NamedTemporaryFile,
+  TemporaryDirectory,
 )
 from unittest import (
   TestCase,
@@ -262,10 +274,12 @@ class TestCompletingArgumentParser(TestCase):
   def testCompletionWithSubparser(self):
     """Verify that completion also works with sub parsers."""
     parser = CompletingArgumentParser(prog="subfoo", add_help=False)
+    parser.add_argument("pos")
     parser.add_argument("--foo", action="store_true")
 
     subparsers = parser.add_subparsers()
     bar = subparsers.add_parser("bar", add_help=False)
+    bar.add_argument("fooz")
     bar.add_argument("-b", "--baz", action="store_true")
 
     foobar = subparsers.add_parser("foobar")
@@ -278,6 +292,8 @@ class TestCompletingArgumentParser(TestCase):
     self.performCompletion(parser, ["-"], {"--foo"})
     self.performCompletion(parser, ["b"], {"bar"})
     self.performCompletion(parser, ["bar", ""], {"-b", "--baz"})
+    self.performCompletion(parser, ["bar", "hallo", ""], {"-b", "--baz"})
+    self.performCompletion(parser, ["positional", "bar", "hallo", ""], {"-b", "--baz"})
     self.performCompletion(parser, ["foobar", ""], {"foobarbaz", "-h", "--foobar", "--help"})
     self.performCompletion(parser, ["--foo", "foobar", ""], {"foobarbaz", "-h", "--foobar", "--help"})
     self.performCompletion(parser, ["foobar", "--f"], {"--foobar"})
@@ -368,6 +384,111 @@ class TestCompletingArgumentParser(TestCase):
 
     self.performCompletion(parser, ["-"], {"--bar", "--baz"})
     self.performCompletion(parser, ["--bar"], {"--bar"})
+
+
+  def testCompleteChoicesForKeyword(self):
+    """Verify that auto completion works if choices are given."""
+    parser = CompletingArgumentParser(prog="choices")
+    parser.add_argument("--move", choices=("rock", "paper", "scissors"))
+
+    self.performCompletion(parser, ["--move", ""], {"rock", "paper", "scissors"})
+    self.performCompletion(parser, ["--move", "p"], {"paper"})
+
+
+  def testCompleteChoicesForPositional(self):
+    """Verify that choice completion works for parser-level positionals."""
+    parser = CompletingArgumentParser(prog="choices", add_help=False)
+    parser.add_argument("player")
+    parser.add_argument("move", choices=("rock", "paper", "scissors"))
+    parser.add_argument("--foo", action="store_true")
+
+    self.performCompletion(parser, ["bar", "--foo", ""], {"rock", "paper", "scissors", "--foo"})
+    self.performCompletion(parser, ["--foo", ""], {"--foo"})
+    self.performCompletion(parser, ["--foo", "bar", "s"], {"scissors"})
+
+
+  def testNonStrChoice(self):
+    """Verify that non-string choices can be completed."""
+    expected = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
+    parser = CompletingArgumentParser(prog="nonStrChoices", add_help=False)
+    parser.add_argument("addends", choices=range(10), nargs="+")
+
+    self.performCompletion(parser, [""], expected)
+    self.performCompletion(parser, ["1", ""], expected)
+    self.performCompletion(parser, ["1", "9", ""], expected)
+    self.performCompletion(parser, ["1337", "42", ""], expected)
+
+
+  def testCompleteWithCompleter(self):
+    """Verify that the 'completer' argument works as expected."""
+    def localFileCompleter(parser, values, word):
+      """A completer for files in the current working directory."""
+      for value in listdir():
+        if value.startswith(word):
+          yield value
+
+    def doTest(parser, args):
+      """Perform the completion test."""
+      with TemporaryDirectory() as dir_,\
+           NamedTemporaryFile(dir=dir_) as f1,\
+           NamedTemporaryFile(dir=dir_) as f2,\
+           NamedTemporaryFile(dir=dir_) as f3,\
+           NamedTemporaryFile(dir=dir_) as f4,\
+           NamedTemporaryFile(dir=dir_) as f5:
+        all_files = set(map(basename, {f1.name, f2.name, f3.name, f4.name, f5.name}))
+
+        old_cwd = getcwd()
+        chdir(dir_)
+        try:
+          self.performCompletion(parser, args + [""], all_files | {"-h", "--help"})
+          self.performCompletion(parser, args + ["no-file", ""], all_files | {"-h", "--help"})
+        finally:
+          chdir(old_cwd)
+
+    parser = CompletingArgumentParser(prog="completer")
+    parser.add_argument("test", completer=localFileCompleter, nargs="+")
+    doTest(parser, [])
+
+    parser = CompletingArgumentParser(prog="subcompleter")
+    subparsers = parser.add_subparsers()
+    subparser = subparsers.add_parser("subparser")
+    subparser.add_argument("test", completer=localFileCompleter, nargs="+")
+    doTest(parser, ["subparser"])
+
+
+  def testCompleteKeywordWithCompleter(self):
+    """Verify that the 'completer' argument works as expected for keyword arguments."""
+    def completeKeyword(parser, values, word):
+      """A completer function."""
+      for choice in ("rock", "paper", "scissors"):
+        if choice.startswith(word):
+          yield choice
+
+    parser = CompletingArgumentParser(prog="keywordcompleter")
+    parser.add_argument("-k", "--keyword", completer=completeKeyword)
+
+    self.performCompletion(parser, ["-k", ""], {"rock", "paper", "scissors"})
+    self.performCompletion(parser, ["--keyword", ""], {"rock", "paper", "scissors"})
+    self.performCompletion(parser, ["-h", "--keyword", "r"], {"rock"})
+
+
+  def testCompleterParserInvocation(self):
+    """Verify that the parser argument in a completer can be used properly."""
+    def completeParser(parser, values, word):
+      """Dummy completer simply parsing the given 'values' and returning the positional string."""
+      namespace, _ = parser.parse_known_args(values)
+      yield namespace.positional
+
+    positional = "pos!"
+
+    parser = CompletingArgumentParser()
+    parser.add_argument("positional")
+    parser.add_argument("--foo", completer=completeParser)
+
+    self.performCompletion(parser, [positional, "--foo", ""], {positional})
+    # Also verify that parser failures (due to a missing positional
+    # argument) are handled correctly.
+    self.performCompletion(parser, ["--foo", ""], set(), exit_code=1)
 
 
 if __name__ == "__main__":

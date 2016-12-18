@@ -28,6 +28,12 @@ from argparse import (
 from collections import (
   namedtuple,
 )
+from contextlib import (
+  contextmanager,
+)
+from functools import (
+  partial,
+)
 from itertools import (
   chain,
 )
@@ -40,16 +46,26 @@ from sys import (
 COMPLETE_OPTION = "--_complete"
 
 
-class Argument(namedtuple("Argument", ["min_", "max_"])):
+class ParserError(BaseException):
+  """Internal exception type raised by a parser during a complete operation."""
+  pass
+
+
+def noCompletion(parser, values, word):
+  """An argument completer yielding no completions."""
+  return tuple()
+
+
+class Argument(namedtuple("Argument", ["min_", "max_", "comp"])):
   """A tuple describing arguments."""
-  def __new__(cls, min_=0, max_=0):
+  def __new__(cls, min_=0, max_=0, comp=noCompletion):
     """Overwrite class creation to provide proper default arguments."""
-    return super().__new__(cls, min_, max_)
+    return super().__new__(cls, min_, max_, comp)
 
 
   def decrement(self):
     """Retrieve a new tuple with the min_ and max_ value decremented by one."""
-    return Argument(self.min_ - 1, self.max_ - 1)
+    return Argument(self.min_ - 1, self.max_ - 1, self.comp)
 
 
 class Arguments(namedtuple("Arguments", ["positionals", "keywords"])):
@@ -76,7 +92,7 @@ def unescapeDoubleDash(args):
   return map(lambda x: x.replace(r"\--", r"--"), args)
 
 
-def complete(arguments, words):
+def complete(parser, values, arguments, words):
   """Complete the last word in the given list of words."""
   def getPositional():
     """Retrieve the positional argument at 'pos_idx'."""
@@ -105,6 +121,8 @@ def complete(arguments, words):
       key = Argument()
       if isinstance(value, Arguments):
         arguments = value
+        pos_idx = 0
+        pos = getPositional()
       elif isinstance(value, Argument):
         key = value
     # Try matching it as a positional. Keyword argument positionals
@@ -113,6 +131,9 @@ def complete(arguments, words):
       key = key.decrement()
     elif pos.max_ > 0:
       pos = pos.decrement()
+      if pos.max_ == 0:
+        pos_idx += 1
+        pos = getPositional()
     else:
       for pos_idx in range(pos_idx + 1, len(arguments.positionals)):
         pos = getPositional()
@@ -122,6 +143,12 @@ def complete(arguments, words):
       else:
         # We were unable to find a matching positional argument.
         return
+
+  if pos.max_ > 0:
+    yield from pos.comp(parser, values, to_complete)
+
+  if key.max_ > 0:
+    yield from key.comp(parser, values, to_complete)
 
   # If there are open keyword-level positional arguments then we
   # should not start completion of keyword arguments.
@@ -181,6 +208,29 @@ def decodeAction(action):
     return decodeNargs(action.nargs)
 
 
+@contextmanager
+def sandbox(parser):
+  """Temporarily overwrite a ArgumentsParser's error and exit method."""
+  def exitFn(status=0, message=None):
+    """A replacement for ArgumentsParser's exit method."""
+    raise ParserError()
+
+  def errorFn(message):
+    """A replacement for ArgumentsParser's error method."""
+    raise ParserError()
+
+  exit_ = parser.exit
+  error = parser.error
+
+  parser.exit = exitFn
+  parser.error = errorFn
+  try:
+    yield
+  finally:
+    parser.error = error
+    parser.exit = exit_
+
+
 class CompleteAction(Action):
   """An action used for completing command line arguments."""
   def __call__(self, parser, namespace, values, option_string=None):
@@ -201,9 +251,18 @@ class CompleteAction(Action):
     # by a new line symbol) and then exit. The latter step is rather
     # clumsy but then no better solution that requires no additional
     # work on the client side was found.
-    completions = list(complete(parser.arguments, words[:index]))
+    try:
+      # We do not want clients invoking a parser and causing a failure
+      # to unconditionally exit the program and printing an error or the
+      # usage of the program, so we replace the methods causing trouble
+      # with benign ones temporarily.
+      with sandbox(parser):
+        completions = list(complete(parser, words, parser.arguments, words[:index]))
+    except ParserError:
+      parser.exit(1)
+
     if len(completions) > 0:
-      print("\n".join(completions))
+      print("\n".join(map(str, completions)))
 
     parser.exit(0 if len(completions) > 0 else 1)
 
@@ -235,8 +294,18 @@ class CompletingArgumentParser(ArgumentParser):
     )
 
 
-  def _addCompletion(self, arg, **kwargs):
+  def _addCompletion(self, arg, choices=None, completer=None, **kwargs):
     """Register a completion for the given argument."""
+    def completeChoice(parser, values, word, choices):
+      """Attempt completion of a word from the given choices."""
+      # Choices that are non-strings are allowed. For instance, integers
+      # are valid candidates and understood by the ArgumentParser.
+      # At the end of the day, however, everything we emit is a string,
+      # so work with strings here.
+      for choice in map(str, choices):
+        if choice.startswith(word):
+          yield choice
+
     # We only fall back to interpreting the action to deduce the
     # argument count if no nargs parameter is given.
     if "nargs" in kwargs:
@@ -248,7 +317,15 @@ class CompletingArgumentParser(ArgumentParser):
       # argument is the default.
       cur_min_, cur_max_ = (1, 1)
 
-    argument = Argument(cur_min_, cur_max_)
+    if choices is not None:
+      # The 'completer' argument and 'choices' are mutually exclusive.
+      assert completer is None
+      completer = partial(completeChoice, choices=choices)
+
+    if completer is None:
+      completer = noCompletion
+
+    argument = Argument(cur_min_, cur_max_, completer)
     keyword = arg.startswith("-")
     if keyword:
       # We are dealing with a keyword argument.
@@ -265,9 +342,9 @@ class CompletingArgumentParser(ArgumentParser):
         self._addCompletion(arg, **kwargs)
 
 
-  def add_argument(self, *args, complete=True, **kwargs):
+  def add_argument(self, *args, complete=True, completer=None, **kwargs):
     """Add an argument to the parser."""
-    self._addArgument(*args, complete=complete, **kwargs)
+    self._addArgument(*args, complete=complete, completer=completer, **kwargs)
     return super().add_argument(*args, **kwargs)
 
 
@@ -336,9 +413,10 @@ class CompletingArgumentParser(ArgumentParser):
 
   def _addGroup(self, add_func, *args, **kwargs):
     """Add an argument group to an argument parser."""
-    def addArgument(add_argument, *args, complete=True, **kwargs):
+    def addArgument(add_argument, *args, complete=True, completer=None,
+                    **kwargs):
       """A replacement method for the add_argument method."""
-      self._addArgument(*args, complete=complete, **kwargs)
+      self._addArgument(*args, complete=complete, completer=completer, **kwargs)
       return add_argument(*args, **kwargs)
 
     group = add_func(*args, **kwargs)

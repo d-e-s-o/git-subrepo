@@ -89,6 +89,46 @@ newly created shell function ``_complete_example``. Once this file is
 sourced in a shell, completion is available.
 
 
+Completers
+----------
+
+**argcomp** supports custom completers. A completer is a simple function
+that is registered along with the argument for which to provide
+completion. Such a function needs to have a given interface and yield
+its completions. Other than that there are practically no limitations on
+what a completer can use to provide completions.
+
+A sample completer providing completions for local files and directories
+can look like this:
+
+```python
+def localFileCompleter(parser, values, word):
+  """A completer for files in the current working directory."""
+  for value in listdir():
+    if value.startswith(word):
+      yield value
+```
+
+Registration is trivial and happens along with argument specification:
+```diff
+--- cat.py
++++ cat.py
+@@ -13,7 +13,7 @@ def localFileCompleter(parser, values, word):
+
+ parser = CompletingArgumentParser(prog="cat")
+ parser.add_argument(
+-  "files", nargs="+",
++  "files", nargs="+", completer=localFileCompleter,
+   help="Files to cat."
+ )
+
+```
+
+Note that completers are not part of *argparse*'s ArgumentParser. As
+such, switching back to it requires removal of the completer keyword
+parameter.
+
+
 Installation
 ------------
 
