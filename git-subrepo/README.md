@@ -249,8 +249,9 @@ Installation
 ------------
 
 In order to run **git-subrepo** the
-[cleanup](https://github.com/d-e-s-o/cleanup) and
-[execute](https://github.com/d-e-s-o/execute) Python modules (contained
+[cleanup](https://github.com/d-e-s-o/cleanup),
+[execute](https://github.com/d-e-s-o/execute), and
+[argcomp](https://github.com/d-e-s-o/argcomp) Python modules (contained
 in the repository in compatible and tested versions) need to be
 accessible by Python (typically by installing them in a directory listed
 in ``PYTHONPATH`` or adjusting the latter to point to each of them).
@@ -259,6 +260,13 @@ All that has to be done in addition is to make the script executable and
 to link it symbolically (or copy/move) into a directory contained in the
 ``PATH`` environment variable. Usually, one also wants to rename it to
 not contain the .py extension anymore.
+
+**git-subrepo** comes with full tab completion support for all commands,
+options, and arguments of the same (a feature currently only tested with
+bash(1)). It ships with a file providing the completion function that
+has to be sourced in the shell of interest. In typical installations,
+this file would be loaded in one of the shell initialization files,
+``~/.bashrc``, for example.
 
 If you are using [Gentoo Linux](https://www.gentoo.org/),
 there is an [ebuild](https://github.com/d-e-s-o/git-subrepo-ebuild)

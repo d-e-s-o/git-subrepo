@@ -45,6 +45,7 @@ from os import (
   curdir,
   devnull,
   sep,
+  walk,
 )
 from os.path import (
   abspath,
@@ -275,6 +276,82 @@ class SubLevelHelpFormatter(HelpFormatter):
     super().add_usage(usage, actions, groups, "Usage: ")
 
 
+def completeRemoteRepo(parser, values, word):
+  """Complete a remote repository."""
+  out, _ = execute_(GIT, "remote", stdout=b"")
+  remotes = out.decode().splitlines()
+
+  for remote in remotes:
+    if remote.startswith(word):
+      yield remote
+
+
+def completeImportedRepo(parser, values, word):
+  """Complete an already imported repository."""
+  importer = GitImporter()
+  if not importer._hasHead():
+    return
+
+  head = importer.resolveCommit("HEAD")
+  # TODO: Need to check whether 'flat' should be true indeed.
+  remotes = importer._searchImportedSubrepos(head, flat=True)
+
+  for remote, _ in remotes:
+    if remote.startswith(word):
+      yield remote
+
+
+def completeImportedPrefix(parser, values, word):
+  """Complete the prefix for an already imported repository."""
+  # We want to provide only those prefixes at which the remote
+  # repository the user must have specified earlier was imported.
+  # Note that because argparse's ArgumentParser is stupid and insists
+  # on us having to provide the "correct" number of arguments (three:
+  # the remote repo, the prefix, and the commit), we need to append a
+  # dummy argument as the commit here for parsing to go through
+  # smoothly.
+  namespace, _ = parser.parse_known_args(values + ["dummy"])
+  importer = GitImporter()
+  if not importer._hasHead():
+    return
+
+  head = importer.resolveCommit("HEAD")
+  # TODO: Need to check whether 'flat' should be true indeed.
+  remotes = importer._searchImportedSubrepos(head, flat=True)
+
+  for remote, prefix_ in remotes:
+    if remote == getattr(namespace, "remote-repository"):
+      if prefix_.startswith(word):
+        yield prefix_
+
+
+def completeRemoteRefs(parser, values, word, remote_only=True):
+  """Complete refs of a remote repository."""
+  if remote_only:
+    namespace, _ = parser.parse_known_args(values)
+    remote = getattr(namespace, "remote-repository")
+  else:
+    # Note that os.path.join simply ignores empty strings for as path
+    # components.
+    remote = ""
+
+  # We could also hack something together with "git branch --list -a
+  # <remote>/..." or the like but parsing the output gets really messy.
+  root = _retrieveRepositoryRoot()
+  refs = join(root, ".git", "refs", "remotes", remote)
+  for _, _, refs in walk(refs):
+    for ref in refs:
+      # Note that we might emit certain branches multiple times here if
+      # multiple repositories have ones with the same name.
+      if ref.startswith(word):
+        yield ref
+
+
+def completeRemoteBranches(parser, values, word):
+  """Complete remote branches of a repository."""
+  yield from completeRemoteRefs(parser, values, word, remote_only=False)
+
+
 def addStandardArgs(parser):
   """Add the standard arguments to an argument parser."""
   parser.add_argument(
@@ -321,18 +398,19 @@ def addImportParser(parser):
 
   required = import_.add_argument_group("Required arguments")
   required.add_argument(
-    "remote-repository", action="store",
+    "remote-repository", action="store", completer=completeRemoteRepo,
     help="A name of a remote repository. The remote repository must already be "
          "know and should be in an up-to-date state. If that is not the case "
          "you can add one using \"git remote add -f <remote-repository-name> "
          "<path-to-remote-repository>\"",
   )
   required.add_argument(
-    "prefix", action="store",
+    # TODO: The completion should also provide existing directories.
+    "prefix", action="store", completer=completeImportedPrefix,
     help="The prefix where to import the subrepo.",
   )
   required.add_argument(
-    "commit", action="store",
+    "commit", action="store", completer=completeRemoteRefs,
     help="A commit of the remote repository to check out.",
   )
 
@@ -351,7 +429,7 @@ def addReimportParser(parser):
 
   optional = reimport.add_argument_group("Optional arguments")
   optional.add_argument(
-    "-b", "--branch", action="store", default=None,
+    "-b", "--branch", action="store", completer=completeRemoteBranches,
     help="Specify a branch in which to look for \"newer\" commits.",
   )
   optional.add_argument(
@@ -374,11 +452,11 @@ def addDeleteParser(parser):
 
   required = delete_.add_argument_group("Required arguments")
   required.add_argument(
-    "remote-repository", action="store",
+    "remote-repository", action="store", completer=completeImportedRepo,
     help="The name of the previously imported remote repository.",
   )
   required.add_argument(
-    "prefix", action="store",
+    "prefix", action="store", completer=completeImportedPrefix,
     help="The prefix of the imported subrepo.",
   )
 
@@ -487,11 +565,19 @@ def deleteMessageForCommit(subrepo, dependencies, space=True):
   return subject + ("\n\n" if space else "\n") + "\n".join(body)
 
 
+def _retrieveRepositoryRoot(print_commands=False):
+  """Retrieve the root directory of the current git repository."""
+  # This function does not invoke git with the "-C" parameter because it
+  # is the one that retrieves the argument to use with it.
+  out = _execute(GIT, "rev-parse", "--show-toplevel", verbose=print_commands)
+  return out[:-1].decode("utf-8")
+
+
 class GitImporter:
   """A class handling subrepo imports."""
-  def __init__(self, debug_commands):
+  def __init__(self, debug_commands=False):
     """Initialize the git subrepo importer object."""
-    root = self._retrieveRepositoryRoot(debug_commands)
+    root = _retrieveRepositoryRoot(debug_commands)
     self._git = GitExecutor(root, debug_commands)
 
 
@@ -954,15 +1040,6 @@ class GitImporter:
   def root(self):
     """Retrieve the root directory of the git repository this importer is bound to."""
     return self._git.root
-
-
-  @staticmethod
-  def _retrieveRepositoryRoot(print_commands=False):
-    """Retrieve the root directory of the current git repository."""
-    # This function does not invoke git with the "-C" parameter because it
-    # is the one that retrieves the argument to use with it.
-    out = _execute(GIT, "rev-parse", "--show-toplevel", verbose=print_commands)
-    return out[:-1].decode("utf-8")
 
 
   @lru_cache(maxsize=1)

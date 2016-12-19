@@ -136,9 +136,9 @@ class GitRepository(PathMixin, PythonMixin, Repository):
 
 
   @Repository.autoChangeDir
-  def subrepo(self, *args):
+  def subrepo(self, *args, **kwargs):
     """Invoke a git-subrepo command."""
-    _subrepo(*args)
+    return _subrepo(*args, **kwargs)
 
 
 class TestGitSubrepo(TestCase):
@@ -1419,17 +1419,30 @@ class TestGitSubrepo(TestCase):
     doTest("dir")
 
 
-  def performCompletion(self, to_complete, expected):
+  def performCompletion(self, to_complete, expected, repo=None):
     """Perform a completion and verify the expected result is produced."""
+    if repo is None:
+      subrepo = _subrepo
+    else:
+      subrepo = repo.subrepo
+
     argv = [
       "--_complete",
       "%d" % len(to_complete),
       sysargv[0],
     ] + to_complete
 
-    out, _ = _subrepo(*argv, stdout=b"")
-    completions = out.decode().splitlines()
-    self.assertSetEqual(set(completions), expected)
+    # We allow for passing in an exit code as the 'expected' value. We
+    # need a special case for that.
+    if isinstance(expected, int):
+      with self.assertRaises(ProcessError) as e:
+        subrepo(*argv, stdout=b"")
+
+      self.assertEqual(e.exception.status, expected)
+    else:
+      out, _ = subrepo(*argv, stdout=b"")
+      completions = out.decode().splitlines()
+      self.assertSetEqual(set(completions), expected)
 
 
   def testCompletion(self):
@@ -1440,6 +1453,74 @@ class TestGitSubrepo(TestCase):
     self.performCompletion(["import", "--f"], {"--force"})
     self.performCompletion(["re"], {"reimport"})
     self.performCompletion(["reimport", "--e"], {"--edit"})
+
+
+  def testCompleteImport(self):
+    """Verify that completion works properly for the 'import' command's parameters."""
+    with GitRepository() as remote1,\
+         GitRepository() as remote2,\
+         GitRepository() as repository:
+      # Add two remotes, 'r1' and 'remote2', that should be completable.
+      repository.remote("add", "--fetch", "r1", remote1.path())
+      repository.remote("add", "--fetch", "remote2", remote2.path())
+
+      self.performCompletion(["import", "r"], {"r1", "remote2"}, repository)
+      # Both remote repositories are effectively empty, we cannot really
+      # expected any context dependent completions to be created.
+      self.performCompletion(["import", "r1", "p"], 1, repository)
+      self.performCompletion(["import", "r1", "prefix1/", "m"], 1, repository)
+
+      write(remote1, "remote1.go", data="go for it")
+      remote1.add("remote1.go")
+      remote1.commit()
+      remote2.commit("--allow-empty")
+
+      repository.fetch("r1")
+      repository.fetch("remote2")
+      repository.subrepo("import", "r1", "prefix1", "master")
+
+      self.performCompletion(["import", "r"], {"r1", "remote2"}, repository)
+      self.performCompletion(["import", "re"], {"remote2"}, repository)
+      self.performCompletion(["import", "r1", "p"], {"prefix1/"}, repository)
+      self.performCompletion(["import", "r1", "prefix1/", "m"], {"master"}, repository)
+
+
+  def testCompleteDelete(self):
+    """Verify that completion works properly for the 'delete' command's parameters."""
+    with GitRepository() as r1,\
+         GitRepository() as r2,\
+         GitRepository() as r3:
+      write(r1, "1.rst", data="// number one")
+      r1.add("1.rst")
+      r1.commit()
+
+      write(r2, "2.rst", data="// number two")
+      r2.add("2.rst")
+      r2.commit()
+
+      r3.commit("--allow-empty")
+      r3.remote("add", "--fetch", "r1", r1.path())
+      r3.remote("add", "--fetch", "repo2", r2.path())
+      r3.subrepo("import", "r1", "prefix1", "master")
+      r3.subrepo("import", "repo2", "p2", "master")
+      r3.commit("--allow-empty")
+
+      self.performCompletion(["delete", "r"], {"r1", "repo2"}, r3)
+      self.performCompletion(["delete", "r1", "p"], {"prefix1/"}, r3)
+
+
+  def testCompleteReimport(self):
+    """Verify that completion works properly for the 'reimport' command's parameters."""
+    with GitRepository() as remote,\
+         GitRepository() as repo:
+      remote.commit("--allow-empty")
+
+      repo.remote("add", "--fetch", "remote", remote.path())
+      self.performCompletion(["reimport", "-v", "-b", ""], {"master"}, repo)
+
+      remote.checkout("-b", "branch")
+      repo.fetch("remote")
+      self.performCompletion(["reimport", "--branch", ""], {"master", "branch"}, repo)
 
 
 if __name__ == "__main__":
