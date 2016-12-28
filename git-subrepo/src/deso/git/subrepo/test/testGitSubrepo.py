@@ -19,8 +19,8 @@
 
 """Various tests for the git-subrepo functionality."""
 
-from deso.cleanup import (
-  defer,
+from contextlib import (
+  contextmanager,
 )
 from deso.execute import (
   execute,
@@ -78,6 +78,17 @@ def _subrepo(*args, **kwargs):
   PythonMixin.inheritEnv(env)
 
   return execute(executable, GIT_SUBREPO, *args, env=env, **kwargs)
+
+
+@contextmanager
+def changeDir(directory):
+  """Change into a directory and back, with context manager support."""
+  cwd = getcwd()
+  chdir(directory)
+  try:
+    yield
+  finally:
+    chdir(cwd)
 
 
 class GitRepository(PathMixin, PythonMixin, Repository):
@@ -317,8 +328,6 @@ class TestGitSubrepo(TestCase):
     """Verify that subrepo prefixes are treated relative to the current directory."""
     with GitRepository() as lib,\
          GitRepository() as app:
-      cwd = getcwd()
-
       write(lib, "lib.h", data="/* Lib */")
       lib.add("lib.h")
       lib.commit()
@@ -328,11 +337,8 @@ class TestGitSubrepo(TestCase):
       # directory. All operations should then work relative to this sub
       # directory.
       mkdir(app.path("src"))
-      chdir(app.path("src"))
-      try:
+      with changeDir(app.path("src")):
         app.subrepo("import", "lib", "lib", "master")
-      finally:
-        chdir(cwd)
 
       self.assertEqual(read(app, "src", "lib", "lib.h"), read(lib, "lib.h"))
 
@@ -344,11 +350,8 @@ class TestGitSubrepo(TestCase):
       lib.commit()
       app.fetch("lib")
 
-      chdir(app.path("src"))
-      try:
+      with changeDir(app.path("src")):
         app.subrepo("import", "lib", "lib", "master")
-      finally:
-        chdir(cwd)
 
       self.assertEqual(read(app, "src", "lib", "lib.h"), read(lib, "lib.h"))
 
@@ -515,7 +518,6 @@ class TestGitSubrepo(TestCase):
       except ProcessError:
         pass
 
-    cwd = getcwd()
     # Check for the proper return message. We assume git-rev-parse
     # failed as that is the first command that is executed. Note that
     # the most important thing in the regular expression is the first
@@ -526,10 +528,7 @@ class TestGitSubrepo(TestCase):
     regex = r"'\[Status [0-9]+\] [^ ]*git rev-parse"
 
     with TemporaryDirectory() as dir_:
-      with defer() as d:
-        chdir(dir_)
-        d.defer(chdir, cwd)
-
+      with changeDir(dir_):
         # Although we are in a temporary directory depending on the
         # overall file system structure we might still have a git
         # repository somewhere above us that could be found. In such a
@@ -1025,13 +1024,9 @@ class TestGitSubrepo(TestCase):
         self.assertNotEqual(read(repo2, file_), read(repo1, "dat", "file.bin"))
         repo2.fetch("repo1")
 
-        cwd = getcwd()
-        chdir(repo2.path(prefix, "dat"))
-        try:
+        with changeDir(repo2.path(prefix, "dat")):
           # Reimport the subrepo imported at HEAD.
           reimport()
-        finally:
-          chdir(cwd)
 
         self.assertEqual(read(repo2, file_), read(repo1, "dat", "file.bin"))
 
