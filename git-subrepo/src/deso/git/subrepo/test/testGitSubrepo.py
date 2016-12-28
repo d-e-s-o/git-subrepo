@@ -1479,6 +1479,14 @@ class TestGitSubrepo(TestCase):
       self.performCompletion(["import", "r1", "p"], {"prefix1/"}, repository)
       self.performCompletion(["import", "r1", "prefix1/", "m"], {"master"}, repository)
 
+      # The completed prefix must be relative to the current directory.
+      with changeDir(repository.path("prefix1")):
+        self.performCompletion(["import", "r1", "."], {"./"}, repository)
+
+      mkdir(repository.path("dir"))
+      with changeDir(repository.path("dir")):
+        self.performCompletion(["import", "r1", "."], {"../prefix1/"}, repository)
+
 
   def testCompleteDelete(self):
     """Verify that completion works properly for the 'delete' command's parameters."""
@@ -1502,6 +1510,9 @@ class TestGitSubrepo(TestCase):
 
       self.performCompletion(["delete", "r"], {"r1", "repo2"}, r3)
       self.performCompletion(["delete", "r1", "p"], {"prefix1/"}, r3)
+
+      with changeDir(r3.path("prefix1")):
+        self.performCompletion(["delete", "r1", "."], {"./"}, r3)
 
 
   def testCompleteReimport(self):

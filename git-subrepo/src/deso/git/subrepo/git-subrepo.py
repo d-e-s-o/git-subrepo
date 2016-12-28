@@ -320,9 +320,12 @@ def completeImportedPrefix(parser, values, word):
   remotes = importer._searchImportedSubrepos(head, flat=True)
 
   for remote, prefix_ in remotes:
+    # The reported prefix is relative to the git repository's root. We
+    # want to report one relative to the current directory.
+    prefix = relpath(join(importer.root, prefix_))
     if remote == getattr(namespace, "remote-repository"):
-      if prefix_.startswith(word):
-        yield prefix_
+      if prefix.startswith(word):
+        yield trail(prefix)
 
 
 def completeRemoteRefs(parser, values, word, remote_only=True):
