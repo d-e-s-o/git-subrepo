@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 #/***************************************************************************
-# *   Copyright (C) 2015-2016 Daniel Mueller (deso@posteo.net)              *
+# *   Copyright (C) 2015-2017 Daniel Mueller (deso@posteo.net)              *
 # *                                                                         *
 # *   This program is free software: you can redistribute it and/or modify  *
 # *   it under the terms of the GNU General Public License as published by  *
@@ -51,6 +51,7 @@ from os.path import (
   abspath,
   basename,
   commonprefix,
+  dirname,
   join,
   lexists,
   normpath,
@@ -131,6 +132,14 @@ class Subrepo(namedtuple("Subrepo", ["repo", "prefix"])):
 def trail(path):
   """Ensure the path has a trailing separator."""
   return join(path, "")
+
+
+def untrail(path):
+  """Ensure the path has no trailing separator."""
+  if path != sep:
+    return trail(path)[:-1]
+  else:
+    return path
 
 
 def _git(root, *args):
@@ -301,8 +310,8 @@ def completeImportedRepo(parser, values, word):
       yield remote
 
 
-def completeImportedPrefix(parser, values, word):
-  """Complete the prefix for an already imported repository."""
+def findImportedPrefixes(parser, values, word):
+  """Find prefixes for an already imported repository."""
   # We want to provide only those prefixes at which the remote
   # repository the user must have specified earlier was imported.
   # Note that because argparse's ArgumentParser is stupid and insists
@@ -324,8 +333,43 @@ def completeImportedPrefix(parser, values, word):
     # want to report one relative to the current directory.
     prefix = relpath(join(importer.root, prefix_))
     if remote == getattr(namespace, "remote-repository"):
-      if prefix.startswith(word):
-        yield trail(prefix)
+      yield trail(prefix)
+
+
+def completeImportedPrefix(parser, values, word):
+  """Complete the prefix for an already imported repository."""
+  for prefix in findImportedPrefixes(parser, values, word):
+    if prefix.startswith(untrail(word)):
+      yield prefix
+
+
+def completeExistingDirectory(parser, values, word):
+  """Complete an existing directory."""
+  # Note that we do not attempt to complete directories above the
+  # current directory (in case we are not in the root of the git
+  # repository). It is fairly painful and not overly useful.
+  top = dirname(word)
+  if not top:
+    top = curdir
+
+  for root, directories, _ in walk(top):
+    for directory in directories:
+      # We do not want to include hidden directories (think, .git) into
+      # our results. Note that the solution is not a cross-platform one.
+      is_hidden = directory.startswith(".")
+      # We need to form a full path relative to the current directory
+      # for the given directory.
+      full_dir = relpath(join(root, directory))
+      if not is_hidden and full_dir.startswith(untrail(word)):
+        yield trail(full_dir)
+
+    # We are only interested in the first level of directories.
+    break
+
+  # We specifically want to auto-complete the current directory for
+  # root-level imports.
+  if curdir.startswith(word):
+    yield trail(curdir)
 
 
 def completeRemoteRefs(parser, values, word, remote_only=True):
@@ -393,6 +437,20 @@ def addOptionalArgs(parser, reimport=False, delete=False, tree=False):
 
 def addImportParser(parser):
   """Add a parser for the 'import' command to another parser."""
+  def completeImportPrefix(parser, values, word):
+    """Complete the prefix attribute for the 'import' command."""
+    found = False
+    for prefix in findImportedPrefixes(parser, values, word):
+      if prefix.startswith(untrail(word)):
+        yield prefix
+
+      found = True
+
+    # We want to suggest existing directories if (and only if), there
+    # hasn't been an actual import of the given repository.
+    if not found:
+      yield from completeExistingDirectory(parser, values, word)
+
   import_ = parser.add_parser(
     "import", add_help=False, formatter_class=SubLevelHelpFormatter,
     help="Import a subrepo.",
@@ -408,8 +466,7 @@ def addImportParser(parser):
          "<path-to-remote-repository>\"",
   )
   required.add_argument(
-    # TODO: The completion should also provide existing directories.
-    "prefix", action="store", completer=completeImportedPrefix,
+    "prefix", action="store", completer=completeImportPrefix,
     help="The prefix where to import the subrepo.",
   )
   required.add_argument(

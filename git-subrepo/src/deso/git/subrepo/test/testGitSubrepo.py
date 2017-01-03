@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 #/***************************************************************************
-# *   Copyright (C) 2015-2016 Daniel Mueller (deso@posteo.net)              *
+# *   Copyright (C) 2015-2017 Daniel Mueller (deso@posteo.net)              *
 # *                                                                         *
 # *   This program is free software: you can redistribute it and/or modify  *
 # *   it under the terms of the GNU General Public License as published by  *
@@ -1460,10 +1460,20 @@ class TestGitSubrepo(TestCase):
       repository.remote("add", "--fetch", "remote2", remote2.path())
 
       self.performCompletion(["import", "r"], {"r1", "remote2"}, repository)
+      self.performCompletion(["import", "r1", "."], {"./"}, repository)
       # Both remote repositories are effectively empty, we cannot really
       # expected any context dependent completions to be created.
       self.performCompletion(["import", "r1", "p"], 1, repository)
       self.performCompletion(["import", "r1", "prefix1/", "m"], 1, repository)
+
+      mkdir(repository.path("foo"))
+      self.performCompletion(["import", "r1", "f"], {"foo/"}, repository)
+      self.performCompletion(["import", "r1", "foo"], {"foo/"}, repository)
+      mkdir(repository.path("foo", "bar"))
+      self.performCompletion(["import", "r1", "foo/"], {"foo/bar/"}, repository)
+      self.performCompletion(["import", "r1", "foo/b"], {"foo/bar/"}, repository)
+      mkdir(repository.path("foo", "baz"))
+      self.performCompletion(["import", "r1", "foo/b"], {"foo/bar/", "foo/baz/"}, repository)
 
       write(remote1, "remote1.go", data="go for it")
       remote1.add("remote1.go")
@@ -1474,6 +1484,8 @@ class TestGitSubrepo(TestCase):
       repository.fetch("remote2")
       repository.subrepo("import", "r1", "prefix1", "master")
 
+      # Note that if an import had already been performed we do not want
+      # the current directory to show up unconditionally.
       self.performCompletion(["import", "r"], {"r1", "remote2"}, repository)
       self.performCompletion(["import", "re"], {"remote2"}, repository)
       self.performCompletion(["import", "r1", "p"], {"prefix1/"}, repository)
