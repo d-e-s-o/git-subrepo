@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #/***************************************************************************
-# *   Copyright (C) 2016 Daniel Mueller (deso@posteo.net)                   *
+# *   Copyright (C) 2016-2017 Daniel Mueller (deso@posteo.net)              *
 # *                                                                         *
 # *   This program is free software: you can redistribute it and/or modify  *
 # *   it under the terms of the GNU General Public License as published by  *
@@ -19,7 +19,7 @@
 
 _complete_gitsubrepo()
 {
-  local completions=$("${1}" --_complete "${COMP_CWORD}" "${COMP_WORDS[@]}")
+  local completions=$(git-subrepo --_complete "${COMP_CWORD}" "${COMP_WORDS[@]}")
   if [ $? -eq 0 ]; then
     readarray -t COMPREPLY < <(echo -n "${completions}")
   fi
