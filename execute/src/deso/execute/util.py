@@ -1,7 +1,7 @@
 # util.py
 
 #/***************************************************************************
-# *   Copyright (C) 2015 Daniel Mueller (deso@posteo.net)                   *
+# *   Copyright (C) 2015-2016 Daniel Mueller (deso@posteo.net)              *
 # *                                                                         *
 # *   This program is free software: you can redistribute it and/or modify  *
 # *   it under the terms of the GNU General Public License as published by  *
@@ -20,13 +20,20 @@
 """Utility functionality related to command execution."""
 
 from os import (
+  access,
   environ,
   pathsep,
+  F_OK,
+  X_OK,
 )
 from os.path import (
-  isfile,
   join,
 )
+
+
+def isExecutable(path):
+  """Check if the given path references an executable file."""
+  return access(path, F_OK | X_OK)
 
 
 def findCommand(name):
@@ -40,7 +47,7 @@ def findCommand(name):
 
   for d in dirs:
     f = join(d, name)
-    if isfile(f):
+    if isExecutable(f):
       return f
 
   raise FileNotFoundError("No command named '%s' found in PATH (%s)" % (name, path))

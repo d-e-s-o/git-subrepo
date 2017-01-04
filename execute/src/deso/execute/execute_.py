@@ -1,7 +1,7 @@
 # execute_.py
 
 #/***************************************************************************
-# *   Copyright (C) 2014-2015 Daniel Mueller (deso@posteo.net)              *
+# *   Copyright (C) 2014-2017 Daniel Mueller (deso@posteo.net)              *
 # *                                                                         *
 # *   This program is free software: you can redistribute it and/or modify  *
 # *   it under the terms of the GNU General Public License as published by  *
@@ -46,6 +46,11 @@
     ['/bin/tr', 'a', 'a'],
     ['/bin/dd', 'of=/tmp/output'],
   ]
+
+  Note that executed processes stay alive independently of their parents
+  (i.e., the Python instance in our case). That is, if the parent is
+  killed the child is unaffected. The prctl PR_SET_PDEATHSIG can be used
+  to influence this behavior on a per-child basis.
 """
 
 from deso.cleanup import (
@@ -90,14 +95,17 @@ from sys import (
 )
 
 
-class ProcessError(ChildProcessError):
-  """A class enhancing OSError with proper attributes for our use case.
+class ProcessError(RuntimeError):
+  """A class enhancing a the RuntimeError class with proper attributes for our use case.
 
-    The OSError attributes errno, filename, and filename2 do not really
-    describe our use case. Most importantly, however, OSError does not
-    interpret the filename arguments in any way, meaning newline
-    characters will be printed directly as '\n' instead of resulting in
-    a line break.
+    This class is the exception class used for all sorts of process
+    execution failures. We do not use OSError or one of its derivates
+    (e.g., ChildProcessError) as base class because it contains
+    attributes not useful in our context (errno, for example). Most
+    importantly, however, we provide this custom class because OSError
+    does not interpret the filename arguments in any way, meaning
+    newline characters will be printed directly as '\n' instead of
+    resulting in a line break.
   """
   def __init__(self, status, name, stderr=None):
     super().__init__()
@@ -111,7 +119,9 @@ class ProcessError(ChildProcessError):
 
     self._status = status
     self._name = name
-    self._stderr = stderr
+    # We want to get rid of all leading and trailing newlines
+    # occasionally contained in stderr outputs.
+    self._stderr = stderr.strip() if stderr is not None else None
 
 
   def __str__(self):
@@ -347,7 +357,7 @@ def _wait(pids, commands, data_err, status=0, failed=None):
       status = this_status
 
   if status != 0:
-    error = data_err.decode("utf-8") if data_err else None
+    error = data_err.decode("utf-8") if data_err is not None else None
     raise ProcessError(status, failed, error)
 
 
@@ -630,8 +640,19 @@ def pipeline(commands, env=None, stdin=None, stdout=None, stderr=b""):
   # We have read or written all data that was available, the last thing
   # to do is to wait for all the processes to finish and to clean them
   # up.
-  _wait(pids, commands, data_err)
-  return data_out, data_err
+  _wait(pids, commands, data_err if stderr is not None else None)
+
+  # We mirror the logic from __init__ in that we special case values of
+  # None and of type int and treating everything else as data.
+  stdout_valid = stdout is not None and not isinstance(stdout, int)
+  stderr_valid = stderr is not None and not isinstance(stderr, int)
+
+  if stdout_valid and stderr_valid:
+    return data_out, data_err
+  elif stdout_valid:
+    return data_out
+  elif stderr_valid:
+    return data_err
 
 
 def _spring(commands, env, fds):
@@ -778,5 +799,15 @@ def spring(commands, env=None, stdout=None, stderr=b""):
 
     data_out, data_err = fds.data()
 
-  _wait(pids, commands, data_err, status=status, failed=failed)
-  return data_out, data_err
+  error = data_err if stderr is not None else None
+  _wait(pids, commands, error, status=status, failed=failed)
+
+  stdout_valid = stdout is not None and not isinstance(stdout, int)
+  stderr_valid = stderr is not None and not isinstance(stderr, int)
+
+  if stdout_valid and stderr_valid:
+    return data_out, data_err
+  elif stdout_valid:
+    return data_out
+  elif stderr_valid:
+    return data_err
