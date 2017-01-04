@@ -285,6 +285,21 @@ class SubLevelHelpFormatter(HelpFormatter):
     super().add_usage(usage, actions, groups, "Usage: ")
 
 
+def checkForGitRepo(function):
+  """A decorator invoking a completion only if we are in a git repository."""
+  def decorator(*args, **kwargs):
+    """Invoke the given function if we are in a git repository."""
+    try:
+      _retrieveRepositoryRoot()
+    except ProcessError:
+      pass
+    else:
+      yield from function(*args, **kwargs)
+
+  return decorator
+
+
+@checkForGitRepo
 def completeRemoteRepo(parser, values, word):
   """Complete a remote repository."""
   out, _ = execute_(GIT, "remote", stdout=b"")
@@ -295,6 +310,7 @@ def completeRemoteRepo(parser, values, word):
       yield remote
 
 
+@checkForGitRepo
 def completeImportedRepo(parser, values, word):
   """Complete an already imported repository."""
   importer = GitImporter()
@@ -336,6 +352,7 @@ def findImportedPrefixes(parser, values, word):
       yield trail(prefix)
 
 
+@checkForGitRepo
 def completeImportedPrefix(parser, values, word):
   """Complete the prefix for an already imported repository."""
   for prefix in findImportedPrefixes(parser, values, word):
@@ -343,6 +360,7 @@ def completeImportedPrefix(parser, values, word):
       yield prefix
 
 
+@checkForGitRepo
 def completeExistingDirectory(parser, values, word):
   """Complete an existing directory."""
   # Note that we do not attempt to complete directories above the
@@ -372,6 +390,7 @@ def completeExistingDirectory(parser, values, word):
     yield trail(curdir)
 
 
+@checkForGitRepo
 def completeRemoteRefs(parser, values, word, remote_only=True):
   """Complete refs of a remote repository."""
   if remote_only:
@@ -394,6 +413,7 @@ def completeRemoteRefs(parser, values, word, remote_only=True):
         yield ref
 
 
+@checkForGitRepo
 def completeRemoteBranches(parser, values, word):
   """Complete remote branches of a repository."""
   yield from completeRemoteRefs(parser, values, word, remote_only=False)

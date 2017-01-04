@@ -1431,9 +1431,10 @@ class TestGitSubrepo(TestCase):
     # need a special case for that.
     if isinstance(expected, int):
       with self.assertRaises(ProcessError) as e:
-        subrepo(*argv, stdout=b"")
+        subrepo(*argv, stdout=b"", stderr=b"")
 
       self.assertEqual(e.exception.status, expected)
+      self.assertEqual(e.exception.stderr, "")
     else:
       out, _ = subrepo(*argv, stdout=b"")
       completions = out.decode().splitlines()
@@ -1539,6 +1540,17 @@ class TestGitSubrepo(TestCase):
       remote.checkout("-b", "branch")
       repo.fetch("remote")
       self.performCompletion(["reimport", "--branch", ""], {"master", "branch"}, repo)
+
+
+  def testCompleteOutsideOfRepository(self):
+    """Verify that completion outside of a git repository does not cause unexpected failures."""
+    with TemporaryDirectory() as dir_:
+      with changeDir(dir_):
+        # Note that the performCompletion method checks that the stderr
+        # content emitted is empty.
+        self.performCompletion(["import", "."], 1)
+        self.performCompletion(["reimport", "."], 1)
+        self.performCompletion(["delete", "."], 1)
 
 
 if __name__ == "__main__":
