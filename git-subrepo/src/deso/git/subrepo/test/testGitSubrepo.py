@@ -989,6 +989,18 @@ class TestGitSubrepo(TestCase):
     self.performReimportTest(amendOnDifferentBranch)
 
 
+  def testReimportNonExistentBranch(self):
+    """Verify that a non-existant branch passed to --branch is flagged."""
+    def renameBranch(lib, app):
+      """Amend a subrepo import to modify additional files and test reimport."""
+      regex = r"Branch devel is unknown."
+
+      with self.assertRaisesRegex(ProcessError, regex):
+        app.subrepo("reimport", "--branch=devel")
+
+    self.performReimportTest(renameBranch)
+
+
   def testReimportCwdInPrefix(self):
     """Verify that we can reimport a subrepo while residing in the respective prefix directory."""
     def reimport():

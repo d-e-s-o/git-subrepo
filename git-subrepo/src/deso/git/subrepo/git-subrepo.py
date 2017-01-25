@@ -852,6 +852,10 @@ class GitImporter:
     prefix, repo, old_commit = match.groups()
     subrepo = Subrepo(repo, prefix)
 
+    if branch is not None:
+      if not self._isValidCommit("%s/%s" % (repo, branch)):
+        raise ReimportError("Branch %s is unknown." % branch)
+
     subject = self._retrieveSubject(old_commit)
     new_commits = self._findCommitsBySubject(repo, subject, branch=branch)
     count = len(new_commits)
