@@ -399,6 +399,26 @@ class TestGitSubrepo(TestCase):
     doTest("r1", ".")
 
 
+  def testImportNonExistentCommit(self):
+    """Verify that importing a non-existent commit raises an error as appropriate."""
+    with GitRepository() as child,\
+         GitRepository() as parent:
+      write(child, "child.py", data="# child.py")
+      child.add("child.py")
+      child.commit()
+
+      parent.remote("add", "--fetch", "child", child.path())
+
+      # Importing at an unknown commit (like a non-existent branch)
+      # should raise an error.
+      pattern = r"^\[Status.*refs/remotes/child/%s\^{commit}: 'fatal: Needed a"
+      with self.assertRaisesRegex(ProcessError, pattern % "devel"):
+        parent.subrepo("import", "child", ".", "devel")
+
+      with self.assertRaisesRegex(ProcessError, pattern % "HEAD"):
+        parent.subrepo("import", "child", ".", "HEAD")
+
+
   def testAddEqualRepos(self):
     """Verify that we can merge two similar subrepos pulled in as dependencies."""
     with GitRepository() as lib1,\

@@ -672,19 +672,25 @@ class GitImporter:
     try:
       to_import = "refs/remotes/%s/%s" % (repo, commit)
       return self.resolveCommit(to_import)
-    except ProcessError:
+    except ProcessError as e:
       # If we already got supplied a SHA1 hash the above command will fail
       # because we prefixed the hash with the repository, which git will
       # not understand. In such a case we want to make sure we are really
       # dealing with the SHA1 hash (and not something else we do not know
       # how to handle correctly) and ask git to parse it again, which
       # should just return the very same hash.
-      sha1 = self.resolveCommit(commit)
-      if sha1 != commit:
-        # Very likely we will not hit this path because git-rev-parse
-        # returns an error and so we raise an exception beforehand. But
-        # to be safe we keep it.
-        raise RuntimeError("Commit name '%s' was not understood." % commit)
+      try:
+        sha1 = self.resolveCommit(commit)
+      except ProcessError:
+        raise e
+      else:
+        if sha1 != commit:
+          # If the resolved commit does not equal to what we expect to
+          # be a SHA1 hash then we likely got supplied some symbolic
+          # name that has a meaning in the local repository but not the
+          # remote one. In that case we just reraise the original
+          # exception.
+          raise e
 
       return commit
 
