@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 #/***************************************************************************
-# *   Copyright (C) 2015-2017 Daniel Mueller (deso@posteo.net)              *
+# *   Copyright (C) 2015-2018 Daniel Mueller (deso@posteo.net)              *
 # *                                                                         *
 # *   This program is free software: you can redistribute it and/or modify  *
 # *   it under the terms of the GNU General Public License as published by  *
@@ -59,6 +59,7 @@ from os.path import (
 )
 from re import (
   compile as compileRe,
+  IGNORECASE,
 )
 from sys import (
   argv as sysargv,
@@ -74,8 +75,8 @@ ECHO = findCommand("echo")
 REPO_STR = "{prefix}:{repo}"
 PREFIX_R = r"([^:\n]+)"
 REPO_R = r"([^ \n]+)"
-IMPORT_MSG = "import subrepo %s at {sha1}" % REPO_STR
-DELETE_MSG = "delete subrepo %s" % REPO_STR
+IMPORT_MSG = "Import subrepo %s at {sha1}" % REPO_STR
+DELETE_MSG = "Delete subrepo %s" % REPO_STR
 # A meant-to-be regular expression matching no whitespaces.
 NO_WS_R = "[^ \t]+"
 # We want to filter out all tree objects (i.e., git's version of a
@@ -88,9 +89,9 @@ FILE_R = ".+"
 # comprised of 40 hexadecimal characters.
 SHA1_R = "[a-z0-9]{40}"
 IMPORT_MSG_R = IMPORT_MSG.format(prefix=PREFIX_R, repo=REPO_R, sha1="(%s)" % SHA1_R)
-IMPORT_MSG_RE = compileRe(r"%s" % IMPORT_MSG_R)
+IMPORT_MSG_RE = compileRe(r"%s" % IMPORT_MSG_R, IGNORECASE)
 DELETE_MSG_R = DELETE_MSG.format(prefix=PREFIX_R, repo=REPO_R)
-DELETE_MSG_RE = compileRe(r"%s" % DELETE_MSG_R)
+DELETE_MSG_RE = compileRe(r"%s" % DELETE_MSG_R, IGNORECASE)
 # As per git-ls-tree(1) each line has the following format:
 # <mode> SP <type> SP <object> TAB <file>
 LS_TREE = "{nows} {type} {nows}\t({file})$"
@@ -959,6 +960,7 @@ class GitImporter:
     args = [
       "--remotes=%s" % pattern,
       "--grep=^%s$" % subject,
+      "--regexp-ignore-case",
     ]
 
     out = self._git.execute("rev-list", *args)
@@ -1273,7 +1275,13 @@ class GitImporter:
     # The git pattern match is line based, meaning we can assume the
     # message to match starts at the beginning of the line and ends at
     # the end.
-    out = self._git.execute("rev-list", "--extended-regexp", "--grep=^(%s)$" % pattern, head_commit)
+    args = [
+      "--extended-regexp",
+      "--grep=^(%s)$" % pattern,
+      "--regexp-ignore-case",
+      head_commit,
+    ]
+    out = self._git.execute("rev-list", *args)
     if out == b"":
       return {}
 
@@ -1283,7 +1291,7 @@ class GitImporter:
     # new matching group for the entire pattern, however, so use the
     # '(?:XX) trickery here which is not available in git's regular
     # expression syntax.
-    regex = compileRe("^(?:%s)$" % pattern)
+    regex = compileRe("^(?:%s)$" % pattern, IGNORECASE)
     return extract(commits, regex)
 
 

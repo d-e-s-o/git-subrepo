@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 #/***************************************************************************
-# *   Copyright (C) 2015-2017 Daniel Mueller (deso@posteo.net)              *
+# *   Copyright (C) 2015-2018 Daniel Mueller (deso@posteo.net)              *
 # *                                                                         *
 # *   This program is free software: you can redistribute it and/or modify  *
 # *   it under the terms of the GNU General Public License as published by  *
@@ -868,8 +868,8 @@ class TestGitSubrepo(TestCase):
       r1.remote("add", "--fetch", "r2", r2.path())
       r1.subrepo("import", "r2", "src-r2", "master")
 
-      self.assertIn("import subrepo src-r2/:r2 at ", r1.message("HEAD"))
-      self.assertIn("import subrepo src-r2/src-r3/:r3 at ", r1.message("HEAD"))
+      self.assertIn("Import subrepo src-r2/:r2 at ", r1.message("HEAD"))
+      self.assertIn("Import subrepo src-r2/src-r3/:r3 at ", r1.message("HEAD"))
 
 
   def testImportWithSubsumingPrefix(self):
@@ -976,7 +976,7 @@ class TestGitSubrepo(TestCase):
       self.assertEqual(read(app, "file.txt"), "file")
       self.assertEqual(read(app, "test.txt"), "newdata")
 
-      expected = "add file.txt\n\nimport subrepo"
+      expected = "add file.txt\n\nImport subrepo"
       self.assertIn(expected, app.message("HEAD"))
 
     self.performReimportTest(extendedImport)
@@ -1273,10 +1273,10 @@ class TestGitSubrepo(TestCase):
 
       message = repo4.message("HEAD").splitlines()
       self.assertEqual(len(message), 4)
-      self.assertEqual(message[0], "delete subrepo prefix3/:repo3")
+      self.assertEqual(message[0], "Delete subrepo prefix3/:repo3")
       self.assertEqual(message[1], "")
-      self.assertEqual(message[2], "delete subrepo prefix3/prefix2/:repo2")
-      self.assertEqual(message[3], "delete subrepo prefix3/prefix2/prefix1/:repo1")
+      self.assertEqual(message[2], "Delete subrepo prefix3/prefix2/:repo2")
+      self.assertEqual(message[3], "Delete subrepo prefix3/prefix2/prefix1/:repo1")
 
 
   def testIntermixedSubrepoDelete(self):
