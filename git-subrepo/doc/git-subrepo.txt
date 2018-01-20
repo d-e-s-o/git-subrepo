@@ -98,6 +98,14 @@ OPTIONS
   one of the branches this option followed by the branch name can be
   used.
 
+-d::
+--use-date::
+  When performing a reimport, commits are matched up based on the
+  subject line of the commit message. This can be insufficient if the
+  user reworded the commit. When the --use-date option is specified, the
+  date of the commit will be used as well for matching up commits, but
+  only in case that no match could be found based on the subject line.
+
 --debug-commands::
   In normal mode of operation git-subrepo only prints messages in case
   of errors. For debugging purposes it might be beneficial to understand

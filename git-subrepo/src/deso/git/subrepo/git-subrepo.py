@@ -514,6 +514,12 @@ def addReimportParser(parser):
     help="Specify a branch in which to look for \"newer\" commits.",
   )
   optional.add_argument(
+    "-d", "--use-date", action="store_true", default=False,
+    dest="use_date",
+    help="Also use commit dates for matching up commits if no match can "
+         "be found based on subject.",
+  )
+  optional.add_argument(
     "-v", "--verbose", action="store_true", default=None,
     help="Be more verbose and print the old and the new commit SHA1 on "
          "reimport.",
@@ -854,30 +860,11 @@ class GitImporter:
     self._git.springWithSafeApply(pipe_cmds)
 
 
-  def _reimportImport(self, match, branch=None, verbose=False):
-    """Attempt to reimport the import at the current HEAD, if any."""
+  def _performReimport(self, match, new_commit, old_commit, verbose=False):
+    """Perform the actual reimport."""
     prefix, repo, old_commit = match.groups()
     subrepo = Subrepo(repo, prefix)
 
-    if branch is not None:
-      if not self._isValidCommit("%s/%s" % (repo, branch)):
-        raise ReimportError("Branch %s is unknown." % branch)
-
-    subject = self._retrieveSubject(old_commit)
-    new_commits = self._findCommitsBySubject(repo, subject, branch=branch)
-    count = len(new_commits)
-    if count != 1:
-      if count < 1:
-        msg = "Found no commits matching subject \"{sub}\"."
-      else:
-        msg = "Found {cnt} commits matching subject \"{sub}\":\n{commits}"
-
-      # Note that it is safe to supply arguments that are not contained
-      # in the string -- they will simply be ignored.
-      msg = msg.format(cnt=count, sub=subject, commits="\n".join(new_commits))
-      raise ReimportError(msg)
-
-    new_commit, = new_commits
     if new_commit != old_commit:
       if verbose:
         print("Performing reimport.")
@@ -888,7 +875,7 @@ class GitImporter:
       new_message = self._replaceImportMessage(subrepo, old_message, new_commit, match.start())
       # Reimport the subrepo at a new commit. The incremental changes
       # (if any) will be staged, not committed yet.
-      self.import_(Subrepo(repo, prefix), new_commit)
+      self.import_(subrepo, new_commit)
       # We amend the HEAD commit with the newly staged changes. We also
       # adjust the message to reference the correct new commit that we
       # updated to.
@@ -896,6 +883,64 @@ class GitImporter:
     else:
       if verbose:
         print("No changes found.")
+
+
+  def _reimportBySubject(self, match, branch=None, no_fail=False, verbose=False):
+    """Attempt reimporting an import based on the subject of the commit."""
+    _, repo, old_commit = match.groups()
+    subject = self._retrieveSubject(old_commit)
+    new_commits = self._findCommitsBySubject(repo, subject, branch=branch)
+    count = len(new_commits)
+    if count != 1:
+      if count < 1:
+        if no_fail:
+          return False
+
+        msg = "Found no commits matching subject \"{sub}\"."
+      else:
+        msg = "Found {cnt} commits matching subject \"{sub}\":\n{commits}"
+
+      # Note that it is safe to supply arguments that are not contained
+      # in the string -- they will simply be ignored.
+      msg = msg.format(cnt=count, sub=subject, commits="\n".join(new_commits))
+      raise ReimportError(msg)
+
+    new_commit, = new_commits
+    self._performReimport(match, new_commit, old_commit, verbose=verbose)
+    return True
+
+
+  def _reimportByCommitDate(self, match, branch=None, verbose=False):
+    """Attempt reimporting an import based on the date of the commit."""
+    _, repo, old_commit = match.groups()
+    date = self._retrieveCommitDate(old_commit)
+    new_commits = self._findCommitsByDate(repo, date, branch=branch)
+    count = len(new_commits)
+    if count != 1:
+      if count < 1:
+        msg = "Found no commits matching date {date}."
+      else:
+        msg = "Found {cnt} commits matching date {date}:\n{commits}"
+
+      msg = msg.format(cnt=count, date=date, commits="\n".join(new_commits))
+      raise ReimportError(msg)
+
+    new_commit, = new_commits
+    self._performReimport(match, new_commit, old_commit, verbose=verbose)
+
+
+  def _reimportImport(self, match, branch=None, use_date=False, verbose=False):
+    """Attempt to reimport the import at the current HEAD, if any."""
+    if branch is not None:
+      _, repo, _ = match.groups()
+      if not self._isValidCommit("%s/%s" % (repo, branch)):
+        raise ReimportError("Branch %s is unknown." % branch)
+
+    # First we try importing based on the subject. If 'use_date' is True
+    # then, if that resulted in no commit being found, we also attempt
+    # importing based on the date of the commit.
+    if not self._reimportBySubject(match, branch=branch, no_fail=use_date, verbose=verbose):
+      self._reimportByCommitDate(match, branch=branch, verbose=verbose)
 
 
   def _reimportDelete(self, match):
@@ -915,7 +960,7 @@ class GitImporter:
     self.amendCommit(new_message)
 
 
-  def reimport(self, branch=None, verbose=False):
+  def reimport(self, branch=None, use_date=False, verbose=False):
     """Attempt to reimport the current HEAD, if any."""
     if not self._hasHead():
       return
@@ -923,7 +968,7 @@ class GitImporter:
     old_message = self._retrieveMessage("HEAD")
     match = IMPORT_MSG_RE.search(old_message)
     if match is not None:
-      self._reimportImport(match, branch=branch, verbose=verbose)
+      self._reimportImport(match, branch=branch, use_date=use_date, verbose=verbose)
       return
 
     match = DELETE_MSG_RE.search(old_message)
@@ -945,8 +990,8 @@ class GitImporter:
     self._git.execute("commit", "--amend", "--no-verify", "--message=%s" % message)
 
 
-  def _findCommitsBySubject(self, repo, subject, branch=None):
-    """Given a subject line, find all matching commits."""
+  def _findCommits(self, repo, arguments, branch=None):
+    """Find all matching commits."""
     if branch is not None:
       # Note that unless the --remotes parameter's pattern contains some
       # sort of wildcard it will implicitly be converted into one by
@@ -957,15 +1002,30 @@ class GitImporter:
     else:
       pattern = repo
 
-    args = [
-      "--remotes=%s" % pattern,
+    out = self._git.execute("rev-list", "--remotes=%s" % pattern, *arguments)
+    commits = out.decode("utf-8").splitlines()
+    return list(filter(lambda x: x.strip() != "", commits))
+
+
+  def _findCommitsBySubject(self, repo, subject, branch=None):
+    """Given a subject line, find all matching commits."""
+    arguments = [
       "--grep=^%s$" % subject,
       "--regexp-ignore-case",
     ]
+    return self._findCommits(repo, arguments, branch=branch)
 
-    out = self._git.execute("rev-list", *args)
-    commits = out.decode("utf-8").splitlines()
-    return list(filter(lambda x: x.strip() != "", commits))
+
+  def _findCommitsByDate(self, repo, date, branch=None):
+    """Find all commits with the given commit date."""
+    # Note that git only supports matching by commit dates, not author
+    # dates!
+    arguments = [
+      "--date=iso8601-strict",
+      "--since=%s" % date,
+      "--until=%s" % date,
+    ]
+    return self._findCommits(repo, arguments, branch=branch)
 
 
   def _findSubreposForDeletion(self, subrepo, commit=None):
@@ -1193,6 +1253,16 @@ class GitImporter:
     return self._retrieveProperty(commit, "B")
 
 
+  def _retrieveCommitDate(self, commit):
+    """Retrieve the (author) date of the given commit."""
+    # %aI in a git format string represents author date in ISO 8601
+    # format. Note that we specifically work with the author date here
+    # (but not everywhere else), in the hope that author dates are less
+    # likely to be duplicated (there can easily be multiple equivalent
+    # commit dates when using a rebase operation).
+    return self._retrieveProperty(commit, "aI")
+
+
   # This method can be rather expensive on large repositories. We cache
   # the return value in order to speed up repeated invocations.
   @lru_cache(maxsize=32)
@@ -1351,7 +1421,8 @@ def performReimport(git, namespace):
           "Please commit or stash them.", file=stderr)
     return 1
 
-  git.reimport(branch=namespace.branch, verbose=namespace.verbose)
+  git.reimport(branch=namespace.branch, use_date=namespace.use_date,
+               verbose=namespace.verbose)
   return 0
 
 

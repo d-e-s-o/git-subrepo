@@ -178,6 +178,23 @@ tree
 </varlistentry>
 <varlistentry>
 <term>
+-d
+</term>
+<term>
+--use-date
+</term>
+<listitem>
+<simpara>
+  When performing a reimport, commits are matched up based on the
+  subject line of the commit message. This can be insufficient if the
+  user reworded the commit. When the --use-date option is specified, the
+  date of the commit will be used as well for matching up commits, but
+  only in case that no match could be found based on the subject line.
+</simpara>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
 --debug-commands
 </term>
 <listitem>

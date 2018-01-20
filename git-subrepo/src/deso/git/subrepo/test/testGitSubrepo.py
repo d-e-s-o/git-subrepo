@@ -59,10 +59,16 @@ from sys import (
 from tempfile import (
   TemporaryDirectory,
 )
+from time import (
+  sleep,
+)
 from unittest import (
   main,
   SkipTest,
   TestCase,
+)
+from unittest.mock import (
+  patch,
 )
 
 
@@ -113,18 +119,18 @@ class GitRepository(PathMixin, PythonMixin, Repository):
     return out.decode("utf-8")
 
 
-  def amend(self, message=None):
+  def amend(self, message=None, **kwargs):
     """Amend the current HEAD commit to include all the staged changes."""
     if message is None:
       message = "--reuse-message=HEAD"
     else:
       message = "--message=%s" % message
 
-    self.git("commit", "--amend", message)
+    self.git("commit", "--amend", message, **kwargs)
 
 
   @Repository.autoChangeDir
-  def reimport(self, commit, branch=None):
+  def reimport(self, commit, *args, branch=None):
     """Reimport all subrepos found."""
     # In order for an interactive rebase operation to work in our
     # non-interactive test we simply skip the editor part by setting it
@@ -132,7 +138,7 @@ class GitRepository(PathMixin, PythonMixin, Repository):
     # invocation but since we rarely use that in real-world workflows
     # and because it is more complex to employ we stay with rebase.
     env = {"GIT_EDITOR": TRUE}
-    args = [executable, GIT_SUBREPO, "reimport"]
+    args = [executable, GIT_SUBREPO, "reimport"] + list(args)
     if branch is not None:
       args += ["--branch=%s" % branch]
 
@@ -1177,6 +1183,48 @@ class TestGitSubrepo(TestCase):
       self.assertNotIn(r1_sha1, r3.message("HEAD"))
       r3.reimport("HEAD^")
       self.assertIn(r1_sha1, r3.message("HEAD"))
+
+
+  def testReimportWithDate(self):
+    """Check that reimporting based on the commit's date works."""
+    orig_commit = Repository.commit
+
+    def commit(*args, **kwargs):
+      """A modified Repository commit method that takes more than a second."""
+      # Sleep for a bit to make sure the dates of commits differ.
+      sleep(1)
+      return orig_commit(*args, **kwargs)
+
+    def amendRemote(lib, app):
+      """Amend the HEAD commit in the 'lib' repository and try reimporting it."""
+      # Now change the latest commit in 'lib'.
+      write(lib, "test.txt", data="newdata")
+      lib.add("test.txt")
+
+      date, _ = lib.git("show", "--no-patch", "--format=format:%aI", stdout=b"")
+      env = {"GIT_COMMITTER_DATE": date.decode()}
+      lib.amend(message="another commit message", env=env)
+      sha1 = lib.revParse("HEAD")
+
+      # Last but not least reimport the subrepo. It should contain the
+      # latest changes afterwards.
+      app.fetch("lib")
+
+      # The commit subject changed and so when not using the commit date
+      # we should not be able to find a matching commit to reimport at.
+      regex = "Found no commits matching subject"
+      with self.assertRaisesRegex(ProcessError, regex):
+        app.subrepo("reimport")
+
+      app.reimport("init", "--use-date", branch="master")
+
+      self.assertEqual(read(app, "test.txt"), "newdata")
+      self.assertIn(sha1, app.message("HEAD"))
+
+    # We need to work with a modified commit method that actually takes
+    # some time (to avoid multiple identical commit dates).
+    with patch("deso.git.repo.Repository.commit", new=commit):
+      self.performReimportTest(amendRemote)
 
 
   def testReimportDelete(self):
