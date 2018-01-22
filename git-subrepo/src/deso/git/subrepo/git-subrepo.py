@@ -80,8 +80,9 @@ DELETE_MSG = "Delete subrepo %s" % REPO_STR
 # A meant-to-be regular expression matching no whitespaces.
 NO_WS_R = "[^ \t]+"
 # We want to filter out all tree objects (i.e., git's version of a
-# directory) and blobs (files) from a given state.
-TREE_R = "(?:tree|blob)"
+# directory), blobs (files), and commits (e.g., submodules) from a given
+# state.
+TREE_R = "(?:tree|blob|commit)"
 # Our string matching a file imposes no restrictions on characters in
 # its name/path.
 FILE_R = ".+"

@@ -44,6 +44,7 @@ from os import (
   pardir,
 )
 from os.path import (
+  basename,
   dirname,
   exists,
   join,
@@ -909,6 +910,54 @@ class TestGitSubrepo(TestCase):
 
       self.assertEqual(read(foo, "lib/foo.py"), "test3")
       self.assertEqual(read(foo, "lib64/bar.py"), "test4")
+
+
+  def testImportWithSubmodule(self):
+    """Import a remote repository that contains a submodule."""
+    with GitRepository() as mod,\
+         GitRepository() as lib,\
+         GitRepository() as app:
+      write(mod, "module.dat", data="Module")
+      mod.add(mod.path("module.dat"))
+      mod.commit()
+
+      write(lib, "library.dat", data="Library")
+      lib.add(lib.path("library.dat"))
+      lib.commit()
+
+      write(app, "application.dat", data="Application")
+      app.add(app.path("application.dat"))
+      app.commit()
+
+      lib.submodule("add", mod.path())
+      lib.add(".")
+      lib.commit("--message=Import submodule initially")
+
+      app.remote("add", "--fetch", "lib", lib.path())
+      app.subrepo("import", "lib", "lib-with-mod", "master")
+
+      # Note that as of now we do not do anything special handling for
+      # submodules. That is to say, although the reference to the
+      # submodule will be updated (i.e., it will be pointing to the new
+      # commit) the content is not actually checked out. Hence, we
+      # cannot check for it.
+
+      write(mod, "module.dat", data="ChangedModule")
+      mod.add(mod.path("module.dat"))
+      mod.commit()
+      sha1 = mod.revParse("HEAD")
+
+      submodule = basename(mod.path())
+      lib.submodule("update", "--remote", submodule)
+      lib.add(".")
+      lib.commit()
+
+      app.fetch("lib")
+      app.subrepo("import", "lib", "lib-with-mod", "master")
+
+      # Make sure that the latest commit is referenced in the submodule.
+      diff, _ = app.diff("HEAD^", stdout=b"")
+      self.assertIn("+Subproject commit %s" % sha1, diff.decode())
 
 
   def performReimportTest(self, test_func):
