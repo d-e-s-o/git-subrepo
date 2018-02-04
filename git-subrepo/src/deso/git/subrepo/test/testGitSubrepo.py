@@ -426,6 +426,21 @@ class TestGitSubrepo(TestCase):
         parent.subrepo("import", "child", ".", "HEAD")
 
 
+  def testImportFromTag(self):
+    """Check that we can import a remote repository at a commit represented by a tag."""
+    with GitRepository() as foo,\
+         GitRepository() as bar:
+      tag = "foobarxx"
+
+      write(foo, "foo.rs", data="// foo.rs")
+      foo.add("foo.rs")
+      foo.commit()
+      foo.tag(tag)
+
+      bar.remote("add", "--fetch", "foo", foo.path())
+      bar.subrepo("import", "foo", ".", tag)
+
+
   def testAddEqualRepos(self):
     """Verify that we can merge two similar subrepos pulled in as dependencies."""
     with GitRepository() as lib1,\
@@ -670,6 +685,25 @@ class TestGitSubrepo(TestCase):
       self.assertTrue(exists(app.path("test1", "file2.txt")))
       self.assertTrue(exists(app.path("test2", "file1.txt")))
       self.assertFalse(exists(app.path("test2", "file2.txt")))
+
+
+  def testCommitOwnershipVerificationForTag(self):
+    """Check that a tag not belonging to a certain remote repository cannot be imported."""
+    with GitRepository() as r1,\
+         GitRepository() as r2:
+      tag = "emptyrepo"
+
+      write(r1, "test.cpp", data="# test.cpp")
+      r1.add("test.cpp")
+      r1.commit()
+
+      r2.commit("--allow-empty")
+      r2.tag(tag)
+      r2.remote("add", "--fetch", "r1", r1.path())
+
+      regex = r"is not a reachable commit in remote repository r1"
+      with self.assertRaisesRegex(ProcessError, regex):
+        r2.subrepo("import", "r1", "repo", tag)
 
 
   def testImportRenamedFiles(self):

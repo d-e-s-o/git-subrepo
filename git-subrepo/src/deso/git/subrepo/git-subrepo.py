@@ -676,7 +676,13 @@ class GitImporter:
 
 
   def resolveRemoteCommit(self, repo, commit):
-    """Resolve a potentially symbolic commit name in a remote repository to a SHA1 hash."""
+    """Resolve a potentially symbolic commit name in a remote repository to a SHA1 hash.
+
+      Note that there no guarantee is provided that the given commit
+      (which may be a symbolic name), truly belongs to the given remote
+      repository. Further checks are required to enforce this constraint
+      on the client side.
+    """
     try:
       to_import = "refs/remotes/%s/%s" % (repo, commit)
       return self.resolveCommit(to_import)
@@ -685,22 +691,11 @@ class GitImporter:
       # because we prefixed the hash with the repository, which git will
       # not understand. In such a case we want to make sure we are really
       # dealing with the SHA1 hash (and not something else we do not know
-      # how to handle correctly) and ask git to parse it again, which
-      # should just return the very same hash.
+      # how to handle correctly) and ask git to parse it again.
       try:
-        sha1 = self.resolveCommit(commit)
+        return self.resolveCommit(commit)
       except ProcessError:
         raise e
-      else:
-        if sha1 != commit:
-          # If the resolved commit does not equal to what we expect to
-          # be a SHA1 hash then we likely got supplied some symbolic
-          # name that has a meaning in the local repository but not the
-          # remote one. In that case we just reraise the original
-          # exception.
-          raise e
-
-      return commit
 
 
   def belongsToRepository(self, repo, sha1):
