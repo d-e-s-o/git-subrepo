@@ -521,6 +521,10 @@ def addReimportParser(parser):
          "be found based on subject.",
   )
   optional.add_argument(
+    "-r", "--remote", action="store", completer=completeImportedRepo,
+    help="Only reimport the given remote repository, ignore all others.",
+  )
+  optional.add_argument(
     "-v", "--verbose", action="store_true", default=None,
     help="Be more verbose and print the old and the new commit SHA1 on "
          "reimport.",
@@ -925,12 +929,19 @@ class GitImporter:
     self._performReimport(match, new_commit, old_commit, verbose=verbose)
 
 
-  def _reimportImport(self, match, branch=None, use_date=False, verbose=False):
+  def _reimportImport(self, match, remote=None, branch=None, use_date=False, verbose=False):
     """Attempt to reimport the import at the current HEAD, if any."""
-    if branch is not None:
+    if branch is not None or remote is not None:
       _, repo, _ = match.groups()
-      if not self._isValidCommit("%s/%s" % (repo, branch)):
-        raise ReimportError("Branch %s is unknown." % branch)
+
+      if remote is not None and repo != remote:
+        # The import is supposed to happen for a different repository.
+        # There is nothing for us to do.
+        return
+
+      if branch is not None:
+        if not self._isValidCommit("%s/%s" % (repo, branch)):
+          raise ReimportError("Branch %s is unknown." % branch)
 
     # First we try importing based on the subject. If 'use_date' is True
     # then, if that resulted in no commit being found, we also attempt
@@ -939,9 +950,12 @@ class GitImporter:
       self._reimportByCommitDate(match, branch=branch, verbose=verbose)
 
 
-  def _reimportDelete(self, match):
+  def _reimportDelete(self, match, remote=None):
     """Attempt to reimport the deletion at the current HEAD, if any."""
     prefix, repo = match.groups()
+    if remote is not None and repo != remote:
+      return
+
     subrepo = Subrepo(repo, prefix)
 
     old_message = match.string
@@ -956,7 +970,7 @@ class GitImporter:
     self.amendCommit(new_message)
 
 
-  def reimport(self, branch=None, use_date=False, verbose=False):
+  def reimport(self, remote=None, branch=None, use_date=False, verbose=False):
     """Attempt to reimport the current HEAD, if any."""
     if not self._hasHead():
       return
@@ -964,12 +978,12 @@ class GitImporter:
     old_message = self._retrieveMessage("HEAD")
     match = IMPORT_MSG_RE.search(old_message)
     if match is not None:
-      self._reimportImport(match, branch=branch, use_date=use_date, verbose=verbose)
+      self._reimportImport(match, remote=remote, branch=branch, use_date=use_date, verbose=verbose)
       return
 
     match = DELETE_MSG_RE.search(old_message)
     if match is not None:
-      self._reimportDelete(match)
+      self._reimportDelete(match, remote=remote)
       return
 
 
@@ -1417,7 +1431,7 @@ def performReimport(git, namespace):
           "Please commit or stash them.", file=stderr)
     return 1
 
-  git.reimport(branch=namespace.branch, use_date=namespace.use_date,
+  git.reimport(remote=namespace.remote, branch=namespace.branch, use_date=namespace.use_date,
                verbose=namespace.verbose)
   return 0
 

@@ -131,7 +131,7 @@ class GitRepository(PathMixin, PythonMixin, Repository):
 
 
   @Repository.autoChangeDir
-  def reimport(self, commit, *args, branch=None):
+  def reimport(self, commit, *args, remote=None, branch=None):
     """Reimport all subrepos found."""
     # In order for an interactive rebase operation to work in our
     # non-interactive test we simply skip the editor part by setting it
@@ -142,6 +142,8 @@ class GitRepository(PathMixin, PythonMixin, Repository):
     args = [executable, GIT_SUBREPO, "reimport"] + list(args)
     if branch is not None:
       args += ["--branch=%s" % branch]
+    if remote is not None:
+      args += ["--remote=%s" % remote]
 
     cmd = " ".join(args)
     try:
@@ -1110,6 +1112,49 @@ class TestGitSubrepo(TestCase):
     self.performReimportTest(renameBranch)
 
 
+  def testReimportOnlySpecificRemote(self):
+    """Verify that the --remote parameter is handled correctly."""
+    with GitRepository() as r1,\
+         GitRepository() as r2,\
+         GitRepository() as r3:
+      r3.commit("--allow-empty")
+      r3.tag("init", "master")
+
+      write(r1, "1.c", data="// 1.c")
+      r1.add("1.c")
+      r1.commit()
+
+      write(r2, "2.c", data="// 2.c")
+      r2.add("2.c")
+      r2.commit()
+
+      r3.commit("--allow-empty")
+      r3.remote("add", "--fetch", "r1", r1.path())
+      r3.remote("add", "--fetch", "r2", r2.path())
+      r3.subrepo("import", "r1", "r1", "master")
+      r3.subrepo("import", "r2", "r2", "master")
+      r3.commit("--allow-empty")
+
+      self.assertEqual(read(r3, "r1/1.c"), "// 1.c")
+      self.assertEqual(read(r3, "r2/2.c"), "// 2.c")
+
+      write(r1, "1.c", data="changed 1.c")
+      r1.add("1.c")
+      r1.amend()
+
+      write(r2, "2.c", data="changed 2.c")
+      r2.add("2.c")
+      r2.amend()
+
+      r3.fetch("r1")
+      r3.fetch("r2")
+      # We only reimport imports from remote repository 'r1'.
+      r3.reimport("init", remote="r1")
+
+      self.assertEqual(read(r3, "r1/1.c"), "changed 1.c")
+      self.assertEqual(read(r3, "r2/2.c"), "// 2.c")
+
+
   def testReimportCwdInPrefix(self):
     """Verify that we can reimport a subrepo while residing in the respective prefix directory."""
     def reimport():
@@ -1696,6 +1741,9 @@ class TestGitSubrepo(TestCase):
     with GitRepository() as remote,\
          GitRepository() as repo:
       remote.commit("--allow-empty")
+      write(remote, "some-file.txt", data="// some data")
+      remote.add("some-file.txt")
+      remote.commit()
 
       repo.remote("add", "--fetch", "remote", remote.path())
       self.performCompletion(["reimport", "-v", "-b", ""], {"master"}, repo)
@@ -1703,6 +1751,9 @@ class TestGitSubrepo(TestCase):
       remote.checkout("-b", "branch")
       repo.fetch("remote")
       self.performCompletion(["reimport", "--branch", ""], {"master", "branch"}, repo)
+
+      repo.subrepo("import", "remote", ".", "master")
+      self.performCompletion(["reimport", "--remote", ""], {"remote"}, repo)
 
 
   def testCompleteOutsideOfRepository(self):
