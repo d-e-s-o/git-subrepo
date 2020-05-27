@@ -268,10 +268,6 @@ has to be sourced in the shell of interest. In typical installations,
 this file would be loaded in one of the shell initialization files,
 ``~/.bashrc``, for example.
 
-If you are using [Gentoo Linux](https://www.gentoo.org/),
-there is an [ebuild](https://github.com/d-e-s-o/git-subrepo-ebuild)
-available that can be used directly.
-
 
 Support
 -------
